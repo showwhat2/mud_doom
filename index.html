@@ -3291,23 +3291,56 @@ open box 會出現依波(ippo)
     },
     endDrag(){ this.dragging=false; },
 
-    startTouch(e){
-      if(e.touches.length===2)
-        this.touchDist=this.getDist(e);
-    },
-    onTouchMove(e){
-      if(e.touches.length===2){
-        const d=this.getDist(e);
-        this.zoom*=d/this.touchDist;
-        this.zoom=Math.min(Math.max(0.5,this.zoom),4);
-        this.touchDist=d;
-      }
-    },
-    endTouch(){ this.touchDist=null; },
-    getDist(e){
-      const [a,b]=e.touches;
-      return Math.hypot(b.clientX-a.clientX,b.clientY-a.clientY);
-    }
+    startTouch(e) {
+	  if (e.touches.length === 1) {
+		// 單指拖曳開始
+		this.dragging = true;
+		this.lastX = e.touches[0].clientX;
+		this.lastY = e.touches[0].clientY;
+	  }
+
+	  if (e.touches.length === 2) {
+		// 雙指縮放開始
+		this.touchDist = this.getDist(e);
+		this.dragging = false;
+	  }
+	},
+
+	onTouchMove(e) {
+	  // 單指拖曳
+	  if (e.touches.length === 1 && this.dragging) {
+		const touch = e.touches[0];
+		this.offsetX += touch.clientX - this.lastX;
+		this.offsetY += touch.clientY - this.lastY;
+		this.lastX = touch.clientX;
+		this.lastY = touch.clientY;
+	  }
+
+	  // 雙指縮放
+	  if (e.touches.length === 2) {
+		const d = this.getDist(e);
+
+		if (this.touchDist) {
+		  this.zoom *= d / this.touchDist;
+		  this.zoom = Math.min(Math.max(0.5, this.zoom), 4);
+		}
+
+		this.touchDist = d;
+	  }
+	},
+
+	endTouch() {
+	  this.dragging = false;
+	  this.touchDist = null;
+	},
+
+	getDist(e) {
+	  const [a, b] = e.touches;
+	  return Math.hypot(
+		b.clientX - a.clientX,
+		b.clientY - a.clientY
+	  );
+	}
   }
 }).mount("#app");
 </script>
