@@ -1,0 +1,3316 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>文字地圖系統</title>
+<script src="https://unpkg.com/vue@3"></script>
+
+<style>
+body {
+  margin: 0;
+  background: #1e1e1e;
+  color: white;
+  /* 使用英文名 MingLiU 並加上常見的替代字體 */
+    font-family: "MingLiU", "微軟細明體", PMingLiU, serif;
+}
+
+/* ====== 選單 ====== */
+.topbar {
+  background: #333;
+  padding: 10px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.topbar-wrapper {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 20;
+}
+
+select {
+  background: #222;
+  color: white;
+  border: 1px solid #555;
+  padding: 4px;
+}
+
+/* ====== 地圖區 ====== */
+.map-container {
+  width: 100vw;
+  height: 95vh;
+  overflow: hidden;
+  position: relative;
+  border-top: 1px solid #444;
+  touch-action: none;
+}
+
+.map {
+  position: absolute;
+  white-space: pre;
+  transform-origin: left top;
+}
+
+.char {
+  cursor: pointer;
+}
+
+/* ====== 說明視窗 ====== */
+.info-wrapper {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+}
+
+.info-box {
+  background: #333;
+  border: 1px solid #888;
+  padding: 10px;
+  width: 250px;
+  white-space: pre-line;
+}
+</style>
+</head>
+
+<body>
+<div id="app">
+
+  <!-- 上方選單 -->
+  <div class="topbar-wrapper" :style="menuStyle">
+	  <div class="topbar">
+		分類：
+		<select v-model="selectedCategory">
+		  <option v-for="(v,k) in maps" :value="k">{{ k }}</option>
+		</select>
+
+		地圖：
+		<select v-model="selectedMap">
+		  <option v-for="(v,k) in maps[selectedCategory]" :value="k">{{ k }}</option>
+		</select>
+
+		<button @click="zoomIn">+</button>
+		<button @click="zoomOut">-</button>
+	  </div>
+  </div>
+
+  <!-- 地圖 -->
+  <div class="map-container"
+       @mousedown="startDrag"
+       @mousemove="onDrag"
+       @mouseup="endDrag"
+       @mouseleave="endDrag"
+       @wheel.prevent="onWheel"
+       @touchstart="startTouch"
+       @touchmove="onTouchMove"
+       @touchend="endTouch">
+
+    <div class="map" :style="mapStyle">
+      <template v-for="row in renderedMap">
+        <span v-for="cell in row"
+              class="char"
+              :style="{ color: cell.color }"
+              @click="showInfo(cell)">
+          {{ cell.char }}
+        </span>
+        <br>
+      </template>
+    </div>
+  </div>
+
+  <!-- 說明視窗 -->
+  <div class="info-wrapper" :style="infoStyle" v-if="info">
+    <div class="info-box">
+      <b>{{ info.title }}</b>
+      <p>{{ info.text }}</p>
+      <button @click="info=null">關閉</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const { createApp } = Vue;
+
+createApp({
+  data() {
+    return {
+
+      /* ===== 地圖資料 ===== */
+      maps: {
+        主大陸: {
+          坎德斯大陸: {
+            mapText: `
+__　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　 ╭═══╮
+主大陸                                                                                                                                                       ║月光村║        ○－藥                       
+                                                                                                                                                             ╰═══╯        ∣                           
+                                                                                                                                                                       牢＋監－○－武                        
+                                                                                                                                                                               ∣                           
+                                                                                                                               ？      ○－○－枯      ○          瑞  雷  ？－○－商                       
+  ╭═══╮                                                                                                                   ∣      ∣／＝＼∣      ∣          ∣  ∣      ∣                           
+  ║伊拉村║(低等級不要去)                                                                                                 ●－●－獵－○  ？  ○－○－○－○－○－○－○－○－○                           
+  ╰═══╯                                                                                                               ∣  ∣  ∣  ∣＼  ／∣  ∣      ∣      ∣      ∣    ＼                         
+                                           水 -- ?????????                                                                 獵－●－●－○－○－○－○      泊      管－奧  戰－戰  獨                       
+                                           環 -- pull ring, enter 回到 殿 的 nw                                                    ∣  ∣  ∣  ∣  ∣                      ∣                               
+                                           紅 -- 紅點粉蝶(Gonepterys Amintha Formosana)  ????                                      ○－○－○－○－○                      戰                               
+                                           亞 -- 亞奧利斯(Alolis)                       50000                                      ∣      ∣  ∣  ∣                                                       
+           艾      豹          坎          衛 -- 依拉村守衛(Iro Guard)                  15000       follow                         獵      ○－○－○     暴 -- 暴風巨人(Storm Giant) 20000                 
+         ／  ＼      ＼      ／            勇 -- 依拉勇士(Iro Heroman)                  30000       follow                                 ∣             監 -- 典獄長(Warden)        15000   會關人哦..    
+       園－亞－管      □－花              角 -- 角紋小灰蝶(Syntarucus Plinius)          ----                                              ●                   監獄守衛              10000                 
+               ∣    ／  ＼                蝶 -- 黃金蝴蝶(Golden Butterfly)             50000       sp                                     ∣             牢 -- 角頭老大(Hoodlum)     30000   主動          
+               勇－□      □  蓓          蓓 -- 蓓雅麗特(Berelit)                      50000       sp                                 暴－●－●         獨 -- 獨臂人(halfhand)      30000                 
+             ／            ∣／            花 -- 花豹(Panther)                          20000                                              ∣             戰 -- 戰士公會                                    
+           ■          水－勇      蝶      坎 -- 坎普(Canpou)                           50000                                              ○－●               賓寶(Bimbo)           50000   berserk       
+             ＼            ∣    ／        豹 -- 依拉金錢豹(Money Panther)              50000                                              ∣             雷 -- 雷濟(Reggie)           2000                 
+               ■－？      紅－角          管 -- 酋長的管家(House Keeper)               20000                                              ○             瑞 -- 瑞吉斯特(Register)     2000                 
+             ／                  ＼        園 -- 庭園侍女(Park Maid)                     ????                                              ∣             泊 -- 二隻大白鵝(Goose)      2000                 
+           ■  迷                  衛            百靈鳥(Mongolian Lark)                  ????                                      ○－○－○                   二隻綠皮小青蛙(Frog)   2000                 
+           ∣    ＼              ／        艾 -- 艾思翠詩(Astraes)                      25000                                      ∣      ∣             管 -- 管家(House Keeper)     2000                 
+           ■      ■－■      □             招 蓓雅麗特 ,依拉勇士 ,依拉金錢豹                                                    ○－○－○             奧 -- 奧伯朗(Oberon)         1500                 
+           ∣      ∣    ＼  ／                                                                                                    ∣                     枯 -- search hole -> 你在樹洞裡找到了一把木鑰匙(wooden key)
+           衛      環      □                                                  煙－●－○                                          ○                     獵 -- 獵頭人(Head Hunter)   15000                 
+           ∣                                                                      ∣                                            ／                                                                         
+           □                                                                      ●              ○－把－○              兔－○－兔              ●－狼－●－黑                                           
+             ＼                                                                    ∣                  ∣                  ∣  ∣  ∣              ∣  ∣  ∣  ∣                                           
+               殿                                                                  野                  魚                  ○－稻－○          ○－○－●－樹－●－○    ╭════╮                       
+               nu                                                                  ∣                  ∣                  ∣／∣＼∣        ／    ∣  ∣  ∣  ∣  ∣    ║魔法森林║                       
+               ○                                                                  ○                  ○                  ○－兔－○      ○      ●－狼－●－●－●    ╰════╯                       
+               ∣                                                                  ∣                  ∣                      ∣        ／          ＼∣      ∣／                                         
+╭═══╮     ○－○                                                              ○－○－○－○－○－○       ╭═══╮     ○－○－○              ●      ●                                           
+║動作園║         ∣                                                                          ∣               ║愚人鎮║     ∣                        ＼  ／                                             
+╰═══╯         ○－○－○  岩                                              湖－○－○－徑  邪               ╰═══╯     ○                          大                                               
+                           ∣  ∣                                              ∣  ∣  ∣  ∣  ＋                              ＋                                                                           
+               熊－○－○＋○  雕－●－●                                      ○－○－蛛－○－○－○              郵  博  法  ○－銀                                                                       
+               ∣  ∣  ∣  ∣  ∣      ∣                                      ∣  ∣  ∣  ∣      ∣              ∣  ∣  ∣  ∣                    黑 -- 三隻大黑狼(Black Wolf)                 1500      
+           樹－○－○－象  ●－●  ●－地                                      ○－○－○－○      ○－○－○＋○－○－○－○－廣－墓－殯            樹 -- climb tree                                       
+                   ∣  ∣          ∣                                              ∣  ∣  ∣                      ∣  ∣      ∣                          花栗鼠(chipmunk)                        500      
+           ●      ○－鹿      鷹－●                          ○－○－○－椰－○－○－○－○                      交  藥  冒－○－商                      松鼠(                                  <500      
+         ／∣＼                ∣                              ∣                      ∣  ∣                      ＋          ∣                          天使(angel)                            1200      
+       ●  盜  ●              ●  ●－●－○              ○－○                      ○－○                  ？＋？          岸－○                      天空之城守衛(Laputa Guard)            50000  sp  
+     ／    ∣    ＼            ∣  ∣      ∣              ∣                                                                                        交 -- 二位交通技術學院校警(guard of NCTU)    1500      
+   ●      鑽      ●－●－虎－●－●      ○          ○－○＋屋                                                                                          火龍(Fire Dragon)                     20000  強  
+     ＼          ／            ∣          ∣          ∣               魚  -- 三尾人面魚(Fish)                     700                                                                                     
+       ●      ●              魔          ○－○－○－○               把  -- pull lever                           -hp                                                                                     
+         ＼  ／                                    ＋                   野  -- 二隻野兔(Hare)                      1000                                                                                     
+           ●                                      ○        迪納鎮     煙  -- 吸菸者(Smoker)                      1300                                                                                     
+                                                   ∣                   椰  -- climb tree <-> leap from tree        -hp                                                                                     
+熊 -- 黑熊(black bear)        10000        藥  商  塔                          兩隻猴子(monkey)                    2000                                                                                     
+鹿 -- 長頸鹿(giraffe)          1800        ∣  ∣  ∣                          椰子(coconut)                                                                                                                
+      小長頸鹿(little giraffe) 2000        ○－○－池－○－酒           屋  -- 二個精靈獵人(elf hunter)             500                                                                                     
+鷹 -- 三隻貓頭鷹(owl)          2000                    ∣               池  -- 水池  drink water        level<3 <-> +hp                                                                                     
+盜 -- 往東邊是盜賊公會                         毒      ∣                      狗(dog)                              500                                                                                     
+鑽 -- enter well 是鑽石城                      ∣      ∣               授  -- 教授(NCTU professor)                 300                                                                                     
+虎 -- 老虎(tiger)             10000    殺－殺＋○－○－○－傳           塔  -- 精靈守衛塔, 共三樓                                                                                                           
+      DOOM 頭號殺手 追人!!                 ∣  ＋  ∣  ∣                      八個精靈守衛(elf guard)             2000                                                                                     
+魔 -- 眼魔(Beholder)          10000        殺  授  ○  銀                      精靈守衛隊長(leader of elf guard)   2000                                                                                     
+      與 老虎 狼狽為奸                             ∣                   蛛  -- 蜘蛛(spider)                         400                                                                                          
+殿 -- 往痛苦神殿或伊拉村的入口                     ○                   殺 --  殺手公會                                                                                                                     
+岩 -- move rock  力量要夠                          ∣                          技術高超的殺手 Bongo                50000 sp                                                                                 
+      闇黑騎士                50000                港                                                                                                                                                       
+樹 -- enter hole                                (100,300)                                                                                                                                                   
+      雙頭巨人(Two-headed Giant)  4000
+      動物園主 Sadiby              ???
+地 -- 地精(Gnome)              1000
+● -- 表示要點火把才看得到                                                             
+                                                                   
+1f                 2f                                              
+                                                                    
+                                                                    
+                                                                    
+      ○－○－○         up                                         
+      ∣  ∣  ∣       ／  ＼                                         
+      up  ○  up     ○      ○                                      
+      ∣      ∣       ＼  ／                                      
+      ○－○－○         ○                                         
+          ∣                                                         
+          up                                                          
+                                                                    
+                                                                    
+                                                                    
+                                                                    
+                                                                    
+                                                                    
+`.trim(),
+            markers: [
+              { key:"城門", color:"gold", title:"城門", text:"通往外城。" },
+              { key:"守衛", color:"lightgreen", title:"守衛", text:"裝備精良。\n會阻止可疑人物。" },
+              { key:"寶箱", color:"deepskyblue", title:"寶箱", text:"裡面有道具。" }
+            ]
+          },
+
+          奧雷薩: {
+            mapText: `
+○
+
+Editor : Isaac
+這些map 是很早就完成的, 所以會有一些錯或是沒發現到的地方
+, 還請多多指教.
+
+
+                                                  　　  庫
+                                                　　  ／  ＼
+                                            ○───肉───○
+                                          ／                  ＼
+　　　　　　廣　　　　　　　　廣────管                      ○─洞
+            nd                  ＼  　  │                      │
+            兵　　　○　　        門    ○                      ○
+              ＼  ／  ＼　                ＼                    │
+                ○      ○                  ○                  ○
+                　　　　│                  │                    ＼
+            　　○─○─○                  ○                      ○
+            　／　                        ／  ＼                    │
+            ○                          巫      漢                  羊
+            su                                    ＼              ／
+        ○─○                                      ○          ○
+        │                 洞--不知道有什麼祕密   ／  ＼        │
+        ○─○─○         巫--巫婆,石化        ○      ○─狼─○
+              ／　         狼--月光狼人,no sp,poison          
+        ○─○　　         庫--search 庫房,get crystalkey
+        │                 肉--steal 羊肉,get sheepbone
+        ○─○             門--do place sheepbone into hole1,insert crystalkey into hole2
+            │                 str 21以上可push stone,進入奧雷薩宮 .(要放key的人推)
+            ○
+            │                        １Ｆ      奧雷薩宮
+            ○
+            │                              司─判
+            ○                          　  │  │
+            │                              ○  領
+            ○                                ＼  ＼
+            │                          Ｓ  書─沙─○─侍
+            ○                          │            ／　
+            │                          隊─圖─傲─○
+          　○─月光藥店            
+            │                          Ｓ--press stone,can n,出去了
+            │                          圖--replace picture,出去了
+                                        領--uplevel,到2F
+                           ２Ｆ
+            
+
+                         華     主           地     蝙─○
+                          ＼  ／│            ＼  ／      ＼
+                            雅  ○            　○　       ○
+                                │                         │
+                        妃───女                         ○     快
+                          ＼  ／　                          ＼  ／
+                            陽　                              ○
+                                 
+陽--take 鈕扣,到 地
+快--快樂森林
+
+有SP mob
+
+  右護衛_傲藍特紐(Oulantneo)
+  右護衛_沙菲妮(Safeni)
+  司簿_傲雅紐(Oyaneo)
+  判官 凱特司(Katace)
+  左護衛_華特(Walter)
+  左護衛_雅各藍洛緹(Yapolanloti)
+  宮主_赫塞司(Hansans)
+  王妃_多明妮(Domenni)
+
+SP都很變態會block,,建議 宮主 不要打..
+
+`.trim(),
+            markers: [
+              { key:"商店", color:"orange", title:"商店", text:"販售航海用品。" }
+            ]
+          },
+		  
+		  坎德斯城: {
+            mapText: `
+○
+
+
+Editor : Isaac
+這些map 是很早就完成的, 所以會有一些錯或是沒發現到的地方
+, 還請多多指教.
+                                ○
+                                │
+                                ○
+                                │
+                        ○─○　○          Ｍ
+                        │  │  │          │
+　　　　　　　　○─○─○─○─○─○─○─○─老
+                │  │      │  │      │      │
+                ○  ○      比─○─藥  ○  武─○
+                │              │              │
+                ○      旅      ○      馬      ○
+                │      │      │      │      │
+                ○─○─○─○─○─○─○─○─○
+                                │
+2F地形簡單所以不畫,             ○
+勞倫斯SP berserk                │
+                                ○
+                                │
+                                ○
+                                │
+                            ○─禁
+                                │
+菜--若打不過禁衛軍的話      ○─○─農─菜
+    在此jump canal ,        │      │
+                            ○  ○─○
+    can go 禁's n,n         │  │
+                            牛─○
+                                │
+坎--坎培特                      警up○up坎
+    SP stunt and stun           │
+                                ○      石ed○
+                                nu    ／      ＼
+鬼--摩黑石像鬼                  ○─○          ○en鬼
+    no sp , 攻擊力強, follow    nu  en        ／
+千--千年石魂                    ○  ○       千
+    會石化                      │    ＼
+Ｃ--c stone                     Ｃ      巨
+                                │
+門--hp 十萬,建議找devil     ○─門─○
+    k ,會快很多             │  │  │
+                            ○─○─○
+                                │
+                                守
+守--take bottle , give bottle to guard ,can n,
+
+大石門咒文: 
+spell By the name of Dark God of Candace, Orpheus, uncurse the door
+`.trim(),
+            markers: [
+              { key:"商店", color:"orange", title:"商店", text:"販售航海用品。" }
+            ]
+          },
+		  
+		  天空之城: {
+            mapText: `
+待補充
+`.trim(),
+            markers: [
+              { key:"商店", color:"orange", title:"商店", text:"販售航海用品。" }
+            ]
+          },
+		  
+		  艾芙隆: {
+            mapText: `
+
+
+
+            妖      ○－主      武  雞  農－○
+            nu      ∣          ∣  en／    ∣
+ kick lolo  ○－○－○  酒－女－○－婦      蠻
+       ↘   ∣      ∣  ∣      ∣  ∣    ／
+    ○－樂－○  商  韓－○      ○－販－○
+      ／    ∣    ＼∣  ∣      ∣  ∣
+    馬      ○－伊－？  封  ○－懶  ○
+           ↗   ∣  ∣      ∣
+  send 蒲公英   ○－○－○－河←jump    獺  throw stone
+  to xxx                ∣  ∣  river   ∣↙
+                        藥－兵－⊙－狼－○
+                               pray
+                              statue
+
+
+
+入口: 男性:從戰士公會:n,e,pray statue
+      女性:from 500,700 港口:e,n,ne,n,n,pray statue
+      中性:from 肯耐先生:w,w,wu,listen,s,s,s,w,w,w,sw,pray statue
+      ps. 會到⊙
+
+出口:⊙處:pray statue, 會到冰雪大陸的廟公
+
+限制:男性:須有戰功 or 善良 男性...獨壁人 nw 處 pray 
+     女性:游泳(Swim) : 51  (51)
+     中性:攀爬(climbing) : 51 (51)...q14 的雕像處 pray   
+
+狼 - 海狼拉生                發怒(cb)         ----  70000 exp
+獺 - 六隻水獺                sp 有傷口        auto  30000 exp
+兵 - 肉肉的骷髏衛兵          follow           auto
+懶 - 懶惰的農夫              那一格會減 hp    ----
+伊 - 伊莉莎                  sp 有好幾種 會爆 ----
+                             手腳頭 or clot
+                             (all + 疲勞 - hp)
+                             有動作就會加一次
+                             follow
+                             ps. 跑到雕像不會
+                                 follow??
+韓 - 韓福                    會把房子震垮     ----
+主 - 公主                    sp 會變善良      ----
+妖 - 閃亮小妖精              會嘆息之壁       auto
+蠻 - 叮蠻                    中毒+石化,會亂跑 ----
+     碰碰                    疾病+眼盲        ----
+雞 - 火雞                                     ----
+     大狼狗                  sp 傷口, 談話點  auto
+                             數變零, 有時auto
+女 - 小女孩(胡桃鉗)                           ----
+酒 - 諾斯                    sp 傷口          ----
+     喝醉酒的傢伙                             ----
+婦 - 農婦                    移動             ----
+農 - 辛勞的農夫                               ----
+樂 - 樂樂(kick lolo)                          ----有月光頭帶
+馬 - 馬店主人                                 ----
+販 - 市井小販                                 ----
+     (賣 i.疾病 ii.眼盲 的水晶砂)
+？ - say 換東西 (很多次)
+     可以換 bless 記得用超過 $1000 的 cloth plate 換
+
+封 - 封印之塔 (在 n 那格 show passcard under light)
+商 - 商店
+藥 - 藥店
+武 - 武器店
+
+
+ps. 艾芙隆大陸我沒打過很多 mob...smirk...所以有的 sp 不是
+    很清楚, 如果有人知道的請另外 post ba
+	
+`.trim(),
+            markers: [
+              { key:"商店", color:"orange", title:"商店", text:"販售航海用品。" }
+            ]
+          }
+        },
+
+        黑暗大陸: {
+          索丹城: {
+            mapText: `
+			
+獨腳金人(Golden spear) 
+board 7 e,bridge,7 e,7 s,2 e,s,e,5 s
+c wall 狂暴之師
+
+
+
+                     洞
+                     ∣    
+         雕－○－B1－○－商  
+                 ∣
+                 ○      武
+         ∣      ∣      ∣
+         ○－索－守－○－C2－亭－堂
+       ／        ∣      ∣
+     水－○－C1－隊－C2  藥
+     ∣          ∣
+ 港－○－－－○－○－○－○－老－B2
+     ∣          ∣  ∣  en
+     酒          傳  餐  塔
+                 ∣
+                 蛙  
+                 ∣
+             守－守
+                 ∣
+                 王－○－廚
+
+
+
+C1 查理
+C2 老查
+
+B1 北門
+B2 東門
+
+
+e,e,e,e,e,e,e,bridge,e,n,e,n,
+
+
+        ∣ 
+    ○－○－
+  ／∣  ∣  
+B1  ∣  
+B2－○
+
+
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          },
+		  
+		  索丹城外: {
+            mapText: `
+	
+                                                                     
+__                                                ○－○－○－○         
+                                                  ∣  ∣  ∣  ∣         
+                                      ○－○－○－○－Ｒ－○－○－○－○ 
+                                      ∣  ∣              ∣  ∣  ∣     
+                                  ○－○－○              ○－○－○   
+                                  ∣  ∣                  ∣  ∣       
+                                  ○－○              ○－○－○      
+                                  ∣  ∣              ∣  ∣           
+                              ○－○－○－○－Ｎ  ○－○－○          
+                              ∣  ∣              ∣  ∣              
+                          ○－○－○          ○－○－○              
+                          ∣  ∣  ∣          ∣  ∣                  
+                          ○－○－○－○－○－蟒－○                  
+                          ∣  ∣  ∣  ∣  ∣  ∣                      
+                          ○－cp－○－○－○－○                      
+                          ∣  ∣  ∣  ∣  ∣  ∣                      
+                      ○－○－○－○－○－○－○                    
+                    ／∣  ∣  ∣  ∣  ∣  ∣  ∣                    
+                  橋－○－○－○－○－○－貍－⊕－○                
+                      ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣                
+                      ○－○－○－○－○－⊕－⊕－⊕－○            
+                      ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣            
+                      ○－○－○－○－⊕－○－⊕－○－○            
+                      ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣                
+                      ○－○－○－○－⊕－⊕－⊕－○                
+                          ∣  ∣  ∣  ∣  ∣  ∣                    
+                          ○－○－○－⊕－⊕－○                    
+                          ∣  ∣  ∣  ∣  ∣  ∣                    
+                          ○－○－○－○－⊕－○                    
+                              ∣  ∣  ∣  ∣  ∣                    
+                              ○－○－○－○－○－○                
+                                              ∣  ∣                
+                                              ga－○－○             
+                                                      ∣            
+                              Ｗ－○－防              ○－○         
+                                  ∣                  ∣  ∣            
+                                  ○－○          ○－○－○－○        
+                                      ∣          ∣  ∣  ∣  ∣        
+                                      ○－○－○－○－○－○－○－○      
+                                          ∣  ∣  ∣  ∣  ∣  ∣  ∣      
+                                          ○－○－○－○－○－○－○－○  
+                                                  ∣  ∣  ∣  ∣  ∣      
+                                                  ○－○－○－○－○      
+                                                          ∣  ∣          
+                                                          ○－○          
+                                                                  
+                                                                 
+                                                                   
+                                                                   
+                            鹿－○－∞                             
+                            ∣  ∣                                 
+                            ○－○                                 
+                          ／  ／                                   
+                        ○－○                                     
+                      ／  ／     
+        ○－○－○－○－○              ∞                        
+        ∣              ∣                                        
+        牧－丫－○－獵－○               到山洞  e,e,se,ne,n, 
+            ∣    ＼  ／                 離山洞  w,s,se,w,w  
+            ○      LW                                        
+            ∣      ∣                                    
+        ○－○－○  6l                                              
+            ∣                                                      
+            Ｎ－○－○                                              
+                                                                    
+                                                                    
+                                                           
+                                                                    
+               Ｈ－○ed○－○－○ed○                                
+                                     ＼                              
+                                       st－？          
+
+
+  蟒 -- 叢林巨蟒(Anaconda), 打死後 search 樹叢 出現 hole.
+  橋 -- Bridge, 這裡非常奇怪, 是兩個不同的 Bridge              
+  獵 -- enter tent -> 獵犬(Beagle)   10000
+                      獵人(Huntsman) 15000
+  貍 -- 變身貍貓(Tanuki)                                          
+  cp -- 金絲雀(Canary), 大笨貓(Pussy Cat) 
+  鹿 -- 梅花鹿(Deer)    
+  ga -- enter 進入裂縫(gap)
+  牧 -- 牧羊人(Goatherd)           3300
+  LW -- 小羊(Lamb)             4000     
+        二隻野狼(Wild Wolf)    1500
+  6L -- 六頭小獅子(Little Lion)       8000 sp
+  Ｒ -- enter 山溝  則為侏儒村入口
+  st -- put stone 出現 east 方向出口
+  丫 -- enter -> 野丫頭(Tomboy)
+  ∞ -- 森林, 裡面有強盜. 看不到地上的東西.
+        找到一個看得到敘述的地方 enter 可進入山洞.(Ｈ)
+  ⊕ -- 熱海沙漠，定時減 hp 
+  防 -- str > 42  可以 push 防風林 then -> en,ne,ne 到 黃石鎮南門 -
+  
+  
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          },
+		  
+		  鬼魅森林: {
+            mapText: `
+			
+			
+__            <<  陰森森的鬼魅森林  >>
+
+         from bridge:ne,6 e,2 n 就是入口.
+
+                      □16    □15
+                    ／        ∣
+                  ○17        ○
+                ／              ＼
+              ○18    □12        ○14
+            ／          ＼        ∣
+          ○19            ○11○－○
+          ∣              ∣  ∣
+          ○      ○  ○  ○10○
+          ∣      ∣  ∣  ∣    ＼
+          ○2     ○－○－○－○－○13
+          ∣      ∣  ∣  ∣      ∣
+          ○      ○－○－○－○－○
+          ∣                ＼
+          ○                  ○9
+          ∣                    ＼
+          ○－○－○      ○      ○
+          ∣  ∣  ∣      ∣  8     ＼
+          ○－○－○      ○－○－○－○
+          ∣              ∣
+          ○              ○      □7
+          ∣                ＼      ＼
+      ○－○3                 ○      ○6
+          ∣                    ＼    ∣
+          ○                      ○4 ○5
+          ∣           2   3      ∣／
+          ○－○－○－○－○－○－○
+                      ∣
+                      □1
+                      ∣
+                      ○
+                        ＼
+                          ○
+                            ＼
+                              □en hole,search 角落
+                              ∣
+                              ○
+                            ／
+                          ○
+                          ∣
+                          □hole
+
+key 的順序:水池守護妖 -> 紅 -> 黑 -> 無影.
+
+1.護衛(武士,法師,士兵)--follow
+2.惡鬼,武士--follow
+3.樹妖--no follow
+4.無頭鬼--follow
+5.士兵--follow
+6.護衛
+7.紅將軍--no follow
+8.瘴鬼--no follow
+9.餓死鬼
+10.倩女幽魂-- follow
+11.護衛
+12.無影將軍--no follow
+13.魍魎
+14.瘴鬼
+15.水池守護妖--drink water就會出來
+16.黑將軍--no follow
+17.護衛--follow
+18.士兵-- follow
+19.吊死鬼-- no follow
+*百鬼統領,魍魎會到處走
+*80% 會特攻,追人,主動
+
+鬼魅MAP:
+                                               po
+                                               ∣
+                                       da      ○
+                                     ／          ＼
+                                   Ａ      ○      mg
+                                 ／          ＼    ∣
+                               2s      dg      ○－○－dh
+                             ／          ＼    ∣
+                           hg              Ａ  ○
+                           ∣              ∣    ＼
+                       ○－○－○          bg      em
+                       ∣  ∣  ∣          ∣      ∣
+                       ○－eg－○－○      ○－○－○
+                       ↓  ∣  ∣  ∣       ＼
+                       ↓  ∣  ∣  ∣         ＼
+                   Hg－○－○－○－○－hg       hg
+                   ∣  ∣  ∣  ∣  ∣  ∣         ＼
+               pa－○－○－○－○－○－○－em       ○
+             ／∣＼∣  ∣  ∣  ∣  ∣  ∣  ∣         ＼
+   hg－○－○－○－○－eg－○－em－○－○－○－mg－○－○
+   ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣↗
+   ○－○－○－○－○－○－○－○－○－○－○      rg
+   ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣    ＼      ＼
+   ○－○－○－○－hg－○－tm－○－nh－○      ○      Ａ
+   ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣    ／  ＼    ∣
+   ○－○－mg－○－○－○－○－○－○－○－○      ng  2s
+       ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣      ∣／
+       ○－○－tm－ng－○－○－○－○－GK－tm－○－○
+                                       ∣
+                                       do
+                                       ∣
+                                       ○
+                                         ＼
+                                           ○
+                                             ＼
+                                               ho
+                                               ∣
+                                               ○
+                                             ／
+                                           ○
+                                           ∣
+                                           ○
+                                           ∣
+                                           Ｒ
+
+  ho -- enter hole -> search 角落 -> 你在這裡找到一把小鑰匙。
+  do -- unlock door,open door -> 出現一堆怪物
+  GK -- 惡鬼(Evil Ghost)                              auto
+        邪神軍團武士(Evil Knight)                     auto follow
+  tm -- 樹妖(Tree Monster)                            auto
+  ng -- 無頭鬼(Nohead Ghost)                          auto follow
+  mg -- 瘴鬼(Maisma Ghost)                            auto follow
+  mg -- 瘴鬼(Maisma Ghost)                            auto follow
+          ps: 單一方向 !!  follow 後會亂跑 注意 !!
+  hg -- 餓死鬼(Hungry Ghost)                          auto follow
+  bg -- 倩女幽魂(Beauty Ghost)                             follow
+  Ａ -- 邪神軍魔導士(Evil Magician)                   auto follow
+        邪神軍團武士(Evil Knight)                     auto follow
+        邪神軍團士兵(Soldier)                         auto follow
+  em -- 魍魎(Evil Monster)                            auto move
+  dh -- 水鬼(Drowned Ghost)                           auto follow
+        吊死鬼(Hanged Ghost)                          auto
+  po -- pool, drink water -> -(85+50)hp
+        -> 水池守護妖(Pool Monster)                   auto
+        -> 打死有  沾上血跡的鑰匙(blood key)
+  nh -- 無頭鬼(Nohead Ghost)                          auto
+        餓死鬼(Hungry Ghost)                          auto
+  eg -- 惡鬼(Evil Ghost)                              auto
+  gc -- 百鬼統領(Ghost Commandant)                    move
+  Hg -- 餓死鬼(Hungry Ghost)                          auto
+  2s -- 二個邪神軍團士兵(Soldier)                     auto follow
+  da -- 黑將軍 - 暗黑魔君(Dark General)               auto
+  rg -- 紅將軍 - 噬血狂魔(Red General)
+  dg -- 無影將軍 - 死靈夢魔(Death General)            auto
+        注意 !! 門在 southeast
+  pa -- 從狹縫吹來一陣風, 隱隱夾著香味, 不知道是可以通到哪, 你看著狹
+        縫(path), 心想或許可以鑽過去(squeeze) 。
+        離開鬼魅到蘑菇森林.
+          注意!! 好像回不去鬼魅!!
+
+
+
+
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          },
+		  
+		  黃石鎮: {
+            mapText: `
+【地圖】黃石鎮
+
+                                                                                
+                                                                                
+                                                                                
+ 衛: 二位黃石鎮守衛                    auto (只對邪惡的)       2600
+ 販: 小販                                                      5000
+ 海: 二位海關警衛                                             10000
+ 銀: 三位銀行警衛                                             17000
+ 馬: 會計小姐                          pay accountant          6000
+     彩虹之星                                                  2000
+ 孤: 義工                                                      6000
+     四位孤兒                          sp                      1000
+ 醫: 女神醫 - 茉莉                     sp                     50000
+ 長: 孤兒院院長                        sp                     50000
+ 鎮: 黃石鎮鎮長 - 亞羅伊               sp(crazyberserk)       50000
+     執法者                            auto k 邪惡, move      50000
+     鎮長秘書                                                  ????
+ 釣: 垂釣者                                                    ????
+                                                                                
+p.s.   打死秘書會有四隻執法者到處跑 (str high)
+       一直 ask secretary about 鎮長 可以到鎮長
+       若是戴著鎮長的戒指, 就不會被 auto k
+                                                                                
+從變身貍貓: do e,s,s,s,s,s,s,s,e,e,s,s,w,s,w,s,w,n,w,n,w,n,e
+            push 防風林 (str >= 42)
+            enter,ne,ne 就到黃石鎮了
+            
+                                                                                
+                                                                                
+        貳  肆  陸  捌        
+        ∣  ∣  ∣  ∣        
+        □—□—□—□—□          衛      商      
+      ／    ∣      ∣  ∣          ＋      ∣      
+    □  警  陰  家  蟹  □  武  銀－○－○－○－○      
+    ∣  ∣  ∣  ∣  ∣  ∣    ＼    ∣  ∣      ∣＼      
+壹—馬—□—□—□—菠—□－海－○－○－○＋鎮  ○  釣—關  
+    ∣  ∣  ∣  ∣  ∣  ∣      ∣      ∣      ∣／      
+    □  麵  破  巧  儲  □  販－販  ○－○－○－○      
+      ＼∣      ∣      ∣  ∣  ∣  ∣  ∣  ∣      
+        □—□—□—□—□  販－販  馬  ∣  孤＋醫      
+        ∣  ∣  ∣  ∣    ／            ∣  ＋      
+        參  伍  柒  玖  藥              ∣  長      
+                                        ＋
+                                        衛－○－○－○－○－○
+                                      ／
+                                    林
+                                                                                
+                                                                                
+                                                                                
+陸 碼頭工人(Port Worker)              
+關 海關警衛(Port Guard)               
+菠 觀光客-菠蘿(Polo)
+馬 觀光客-馬可(Marco) 
+蟹 蟹老闆(Eugene H. Krabs) 
+   海綿寶寶(SpongeBob SquarePants)
+家 碼頭工人的家 
+破 打混摸魚的巫醫 陰媞媞(Tin)
+警 黃石港守衛隊長(Port Guard Leader)
+巧 查理．巴格特(Charlie Bucket)
+   威利．旺卡(Willy Wonka)
+陰 陰暗的房間   
+麵 麵包店小姐(Bread Store Lady)
+
+
+
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          },
+		  
+		  
+		  綠水飛岩: {
+            mapText: `
+			
+【地圖】綠水飛岩
+                                                                                
+                              eu
+                            □→ (往靛青石田)
+                          ／  ＼
+    衛－□－□－□－□－□      □
+  ／                              ＼             out  wu  wu
+林                                  □      □←□  □←□←□
+                                  ／      ／  wu  ＼          ＼  eu
+                                □－□－商          客      雀en□→技      隱
+                                          ＼                ：      ↑nu  ／
+                                            □  (pass reeds)畫－□  □o □
+                                            ↑nu          ／    en    ／
+                             (pass 草叢)碑：□          □      蛇  ⊕
+                                       ↗ nu↑            ＼
+                                  l stele   □←□          釣
+                                             wu ：＼      ／
+                                     (pass 芒草)鮭  □－□
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+ 衛: 黃石鎮守衛
+ 林: 防風林 (push 防風林 可以 enter, str >= 42)
+ 商: 旅遊商人                                      sp
+ 客: 遊客 (c stone, dex ??)
+ 雀: 紅羽雀
+ 技: 影技  (此格有 room sp - 2xx hp)               sp
+ 隱: 綠水隱士
+ 畫: 山水畫家 (可 pass reeds)
+ 碑: 石碑 (pass 草叢)
+ 蛇: 小綠蛇
+     公綠蛇, 母綠蛇 (tread eggs)
+ 釣: 釣魚人
+ 鮭: 櫻草鮭魚 (pass 芒草)
+                                                                                
+                                                                                Other:
+     天堂鳥 (move)
+     綠鳳蝶 (move)                                 blind
+     巨型牛頭犬 (綠水隱士附近, move)
+                                                                                
+                                                                                
+p.s. 我只有逛到 ⊕ 這邊而已 :p 因為走回頭碰到影技懶得再打一次...
+     那格的 room sp 超級討厭的, 擺明是要害死 healer 嘛 :( healer
+     do e,heal xxx,w 這樣也是會中 room sp 的喔!! 小心!! 印象中是
+     只要有人進入那格就有機會中一次...all room sp...
+                                                                                
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          },
+		  
+		  靛青石田: {
+            mapText: `
+【地圖】靛青石田
+                                                                                
+                                                                                
+                                                                                
+                                        swing east    draw sword (str ??)
+                                                 ↘    ↙
+                                      swing north □??□
+                                                ↘??
+                  en path □－□－□      □      □
+                        ↘∣  ∣  ∣    ／  ＼  ／
+                          壁－□－□－□      □
+                        ／∣            ＼
+                      維  □      雷      伊
+                      ∣    ＼  ／
+                      □      □
+                                ＼
+                              葛  □
+                                ＼∣
+                                  □→□
+                                    eu  ↘seu
+                                          □→□
+                                            eu  ↘seu
+                                                  □
+                                            wu  ／
+                                          □←□
+                                        nu↑
+                                          □
+                                            ＼
+                                          □→□
+                                eu  eu  ／  eu
+                              □→□→□
+                            ／  ＼
+      衛－□－□－□－□－□      □
+    ／
+  林
+                                                                                
+                                                                                
+ 壁: en path 到南邊一格
+ 衛: 黃石鎮守衛
+ 林: 防風林 (push 防風林 可以 enter, str >= 42)
+                                                                                
+                                                                                
+p.s. 這個圖只是大概, 我上次去逛的不是很完整, 還有很多地方沒看到,
+     想去的人自己參考看看吧 :p 下面的是幾個有 mob 的房間的敘述,
+     str 要夠才能進的去
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+葛雷(Gray)＆仙杜瑞拉(Cinderella)的家 -
+陽光從小四方窗櫺中打了進來, 照耀在靛青色的地板上閃閃發亮, 掛
+在窗口的吊鈴叮叮咚咚的發出悅耳的清脆響聲, 一旁小桌上擺著修補
+到一半的衣裳, 門口兩雙鞋子整整齊齊的排在一旁, 壁爐的煤灰剛被
+清理出來....照這一切看來, 這裡是個既甜蜜又溫暖的家.
+        這裡唯一的出路是 southeast。
+                                                                                
+                                                                                
+雷克斯(Rex)的家 -
+推開大門, 你費勁的越過門口一大堆雜物, 來到房間裡面, 發現連一
+個可以坐的地方都沒有, 四周東西亂丟, 還不時聞到一股怪怪的味道
+, 你想打開窗戶讓空氣流通時, 才發現連窗戶都已經壞了卡死在那兒
+, 那股臭味越來越重, 令你想奪門而出!
+        這裡唯一的出路是 southwest。
+  雷克斯(Rex)
+
+
+維克(Vic)＆艾娜(Ina)的家 -
+火燄熊熊的在石砌的壁爐中燃燒著, 你一進來便感到了滿室的溫馨,
+一旁角落裡日常用品整齊的排列在那兒, 餐桌上擺了幾樣好吃的小點
+心, 令你垂涎三尺! 牆上懸掛著一幅畫像, 門口小桌上的花瓶中, 還
+有剛摘下來的玫瑰花呢! 後面有一扇門, 不知道通往哪兒?
+    南邊的門是開著的。
+        這裡的明顯出路有 south 和 northeast。
+  艾娜(Ina)
+  維克(Vic)
+                                                                                
+維克家的後院 -
+美麗的草皮上幾隻小蝶飛舞著, 一條靛色小徑將小園畫成了兩半, 靛
+青色石子靜靜的閃爍著光茫, 岩壁邊幾棵艾娜細心種植的小樹已經結
+了一些褐色的果實, 前面不遠處是個小小的懸崖, 一陣強大的風往你
+臉上吹來, 你差點站不住腳.
+    北邊的門是開著的。
+        這裡唯一的出路是 north。
+                                                                                
+                                                                                
+伊恩(Ian)＆狄倫(Dylan) 的家 -
+桌上擺著剛從外邊井裡打起來的水, 你可以好好的洗把臉洗去一身的
+疲憊, 簡單的家具擺設, 清爽的環境讓你耳目一新, 伊恩跟狄倫兩兄
+弟在這一帶的風評是很不錯的, 勤奮努力替他們爭來不少的積蓄.
+        這裡唯一的出路是 northwest。
+  伊恩(Ian)
+  狄倫(Dylan)
+
+
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          }
+		  
+        },
+		
+		東方大陸: {
+          東方大陸全圖: {
+            mapText: `
+Editor: Madman
+
+∣－／＼□∞Ⅹ○●
+→←↑↓↖↗↙↘⊕□■⊙                                                                         
+○●╳
+
+                                                                                 入  接矮人村的 入                                  
+                                                                                 ∣                                                 
+                                                                             ╭═陷                                                 
+                                                                             ║  ∣                                                 
+                                                                             ╰═○－陷═╮                                         
+                                                                                     nd  ║                                         
+                                                                                     ○═╯                                         
+                                                                                     nd                                             
+                                                                                     ○                                             
+                                                                                     nd                                             
+                                                                         ○－○－○－○－螢－○                                                                        
+                                                                         ∣      ∣          ∣                                                                        
+                                                                         ∣      ○          ○                  ∞          ∞                                        
+                                                                         ∣      ∣            ＼                ↑          ↑                                        
+                                                                         ∣  ○－○→●          詩          ∞←武→∞  ∞  ○→∞                                    
+                                                                         ∣  ∣        ＼                          ＼    ↑／↓                                        
+                                                                         ∣  ⊕          ●        ╭════╮      ○  ○→∞  ∞  ∞                                  
+                                                                         ∣  ∣          ∣        ║迷霧谷地║      ∣  ∣      ↑  ↑                                
+                        接八卦林地圖                                     ∣  ⊕          ●  崖    ╰════╯      獸－∞      修－○→∞                                                
+                                                                         ∣  ↓            ＼nu                      ∣  ∣    ／                                                        
+                             □        ╭══╮                          ∣  ⊕→⊕          ●－●－●－●－●      ○－○－○                                                          
+                           ／∣        ║森林║                          ∣  ↓↙↑                          ∣          nd       c wall,en hole                                         
+                         豬  ●        ╰══╯                          ∣  ⊕→⊕→⊕－⊕                  ●          ○－○                                                          
+                             ∣                                          ∣  ↓                              ∣          ∣    ＼                                                        
+                             ●      ●  蛇                              ∣  火                              ●          ●      ○  ●                                                  
+                             ∣    ／  ＼∣                              ∣                                  ∣        ／        ∣  ∣                                
+                         精－●－蜂      ○－○                          ∣                                  ●－●－●          ○－橋                                
+                                 ∣    ／                                ○      醫                                                  ↑ bridge 下,north 上             
+                                 蛇  ※                                  nu      ∣                                                  ■                                
+                                     ╰═════╮                      ○eu○－○                                                  ↓ south 下,bridge 上             
+                                                 ║                      nu                                                          漁                                
+             洞  eastnorthup                     ║                      ○                                                          ∣                                
+             ↑  nd                              ║                      nu                                                          ○                                
+             ○                              ○－※              兔      ○                                                            ＼                              
+             ∣                                  ∣            ／        ∣                                                              ○                            
+             ○      商  樂      銀      蒼－○－○－○－○－○－○－○－○－○                                                          ∣                            
+           ／        ∣  ∣      ∣    ／    ∣  ∣                      ∣                                                              ○－●                        
+         ○      ○－○－○－牛－○－○      ○－○                      ○                                                            ／    ∣                        
+         ∣    ／    ∣  ∣          ∣        ＼∣                        ＼                                                        ●      ●                        
+         港－○      武  藥          ○          ○                          ○                                                      ∣    ／                          
+           ＼                        ∣            ＼                        sd                                                  狼－○  ●                            
+             ○                      生－○eu生      ○                      童                     ○      ○－樹               ∣  ∣  sd                            
+           ／                        ∣                ＼                      ＼                 ／  ＼    ∣  ∣       狼－○－○－三  ●                                        
+         ○                      兵－○                  ○                 索   老             狐      ○－○－○           ∣  ∣  ∣  sd                                        
+           ＼                                            ∣                 ∣                ／                             ○－鬼  ○  ●   c wall,en hole,ko knight,out east    
+             ○                                          ○                 ○－○－○－勇－○                                           sd            jump->彩虹谷                
+             ∣                                          su                 ∣                                                           ●－●－牆                                
+             ○－○                                      雕                 ○                                                         ／                                          
+                                                         sd                 ∣                                                       ●                                            
+                                                         ○                 勇＋○        ╭═══╮                                                                               
+                                                         ∣                 ∣            ║矮人村║                                                                               
+                               鐘鼓－●－●－●－●  兔－兔－兔         老＋○            ╰═══╯                                                                  
+                                                 ∣／    ∣                 ∣                                                                                         
+                                                 ●      兔                 ○      村      老      孩                                                                 
+                                                                            ∣      ∣      ：      ：                                                                 
+                                                                            ○－○－○－○－○－○－○－○                                                             
+   門  接 七星堡地圖                                                        ∣          ∣  ：      ：  ║                                                             
+   ∣                                                                       入          侶          ○  ║                                                             
+   ○                                                                                                   ║                                                           
+   ∣                                                 ╭════════════════════════╯                                                                                       
+   nu                                                 ║                                                        ○                                                   
+   ○                                                 ║                                                        ∣                                                   
+   ∣                                                 ║                            妻                  ○－○－○                                                   
+   ○                                                 ║                            ∣                      ∣                                                       
+     ＼ ╭═══════╮                            ║                            ○－村              ○  ○  ○                                                   
+       灘  jump river   ╰══════╮              ║                            ∣                  ∣  ∣  ∣                                           
+         ＼                           ║              ║        蚌－○              ○      廟          ○－○－○                                             
+           ●wd●                     ║              ║        ∣  ∣              ∣      ∣        ／                                                 
+                 ＼                   ║              ║        ○－○－池═════池－○－○－○－○                                                                 
+                   ●wu●             ║              ║        ∣  ∣  ∣                      ∣                                                                  
+                         ＼           ║              ╰════環－○－○                      ○        ╭═══╮                                                   
+                           ●－●     ║                                                        ∣        ║隔世村║                                                        
+                               nu     ║                                                藥      ○  農    ╰═══╯                                                  
+                               ●     ╰═════╮                                    ∣      ∣  nu                                                                  
+                                 ＼               ║                        ○－○－○－○－○－○－○                                                                               
+                                   ○             ║                        ：      ∣      ∣      ∣                                                                  
+                                   ∣             ║                    ○－○      商      品      ○                                                             
+             ╭═══╮        傳  ○             ║   ╭═══╮     ／                            ∣                                                                
+             ║彩虹谷║        ∣  ∣             ║   ║洞外天║   ○     sway leaf            拳－○－刀   ╭════╮                                                      
+             ╰═══╯    武  ○－○－○－商     ║   ╰═══╯   ∣                              ∣       ║武術世家║                                                 
+                           ∣  ∣  ∣  ∣         ║                ○                          刺－○－劍   ╰════╯                                             
+           ○－○－○－○－○－○－○－○－○     ║                  ＼                            ∣                                                                               
+                       ∣  ∣  ∣  ∣  ∣         ║                    ○－○－○                  獨                                                                          
+                       酒  武  ○－○－○－藥     ║                    ∣        ＼                                                                                              
+                               ∣  ∣  ∣         ╰══════════○          樹                                                                                             
+                               婚  馬  銀                                                                                                                              
+                                                                                  pick leaf                                                                                         
+                                                                                                                                                                       
+                                                                                                                                                                       
+                                                                                                                                                                       
+                                                                                                                                                                       
+                                                                                                                                                                       
+                                                                                                                                                                       
+                                                                                                                                                                       
+                                                                                                                                                                       
+                                                                                                                                                                       
+                                             
+											 
+                                             
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          },
+		  
+		   武當: {
+            mapText: `
+			
+山蛇(wild snake):s,nw,sw,w,n,n,n -->起點
+                         ∞              Ｉ
+                         ∣            ／
+   　　　　　　　　　　　○－○－Ｇ－Ｈ
+  　　　 　　　　　　　／　　　　　　∣＼
+  　　　 　　　　　　○　　　　　　　○　○
+　 　　　  　　　　／　　　　　　　／　　　＼
+   　　　Ｄ　　　○　　　　　　　Ｌ　　　　　○
+　 　　　∣　　／　　　　　　　　sd　　　　　　＼
+   　　　Ｃ　Ｆ　　　　　　　　　○　　　　　　　Ｂ
+　   　　∣　∣　　　　　　　　／　　　　　　　　∣
+　　　　 ○　○　　　　　　　Ｍ　　　　　　　　　Ｋ
+　　　　 　＼∣　　　　　　　　　　　　　　　　　∣
+　   　　　　○　　　　　　　　　　　　　　　　　Ｊ
+　　　　   　∣　　　　　　　　　　　　　　　　　∣
+　   　　○－Ｂ　　　　　　　　　　　　　　　S　○
+　　　　   　　＼　　　　　　　　　　　　　／　／
+   　　　　　　　○　　　　　　　　　　　○　○
+　   　　　　　　　＼　　　　　　　　　／　／
+　　   　　　　　　　○　　　○－○　○　Ｂ
+　　　   　　　　　　　＼　　∣／　　∣／
+　　　　　   　　　　　　○－□　　　○
+                           ／∣
+                         Ａ　○
+                             ∣
+                             ○
+                             ∣
+                         Ｅ－○－○
+
+Ａ－山豬(wild pig)
+Ｂ－護卦獸(Guard Monster)
+Ｃ－獅子(Lion)，會定時損 hp。
+Ｄ－肉腳書生(Weak scholar)
+Ｅ－山精(Shangin)
+Ｆ－二隻燕子(Swallow)
+Ｇ－小山羊(Small goat)
+Ｈ－傳送點
+Ｉ－山羊(Goat)
+Ｊ－噴飯雞(Chicken)　　　　　
+Ｋ－傳送點
+Ｌ－護寶獸
+Ｇ－小山羊(Small goat)
+Ｈ－傳送點
+Ｉ－山羊(Goat)
+Ｊ－噴飯雞(Chicken)　　　　　
+Ｋ－傳送點
+Ｌ－護寶獸
+Ｍ－二個護寶獸(Treasury Monster)＆有一圓孔(circle)。--- 任務15
+
+
+PS：1 要到 Ｄ 打死肉腳書生拿邀請卡才能進五當山
+    2 Ｈ、Ｋ等傳送點，皆是將你傳離開點一格，只要看清被傳送到何處
+      再走回來就好。
+    3 本地圖只是草圖，尚有一些地方不詳盡。
+
+====================================================================================
+
+                  掌─僮
+                      ↑
+                      大─□
+                      │
+                      紫
+                      │
+                  二─□              □─客
+                      │            ╱ 
+                      □          □
+                      │        ╱
+          食─□  □─三  □  □
+                ╲    │  │  │
+                  □  □─四─□  
+                    ╲        │
+                      □─□─五
+                            ╱
+                          □
+                          │
+                          六─□
+                          │      
+                          □─□      ∞
+                              │      │
+                          □─七      僮
+                                ╲    │
+                                  □─□
+                                      │
+                                      □
+                                      │
+                                      知
+                                      │
+                                      □
+                                      │
+                              S ─□─掃
+
+紫:  紫霄宮, 玄鋼鑰匙(steel key)能開門,在二俠身上
+掌:  武當掌門人--張小魚(Chang hsiao yu), 她身上有*武當心法(WuDown Note)*
+大:  武當大俠--宋蓋巴(Sung kai pa), look green 能north
+二:  武當二俠--俞木偶(Yu mu ou)
+三:  武當三俠--俞殘冰(Yu tsan ping)
+四:  武當四俠--張流雲(Chang liu yun)
+五:  武當五俠--張陸鳥(Chang lu niao)
+六:  武當六俠--殷小綠(Yin hsiao lu)
+七:  武當七俠--莫光闇(Mo kuang an)
+食:  食堂,有food能加體力
+客:  武當客廂,check in能加體力che
+
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          },
+		  
+		  鐘鼓: {
+            mapText: `
+			
+  
+__                            蝶*
+                              ∣
+                              □
+                              ∣
+              □          □  □－□  蛛      □－□
+                ＼      ／  ＼    ∣  ∣＼  ／      ＼
+                  □－□      □－□－□  □  樹X 蛛  □
+                    ＼∣    ／              ＼∣  ∣  ∣
+                      □  □  □  □－豹－□  □  □－□
+                        ／∣／∣／      ／  ＼
+              □－□－□  □  RW  □－□  □－□  蝠
+              ∣  ∣      ∣  ∣    ＼      ／    ∣
+              □  豹－□  □  □  □－□  □  □  □  □－□
+                ＼  ＼∣  ∣        ／          ＼∣／  ／
+          □      霧  □  □－□  鷹  □  □  □  金  □
+            ＼      ／      ／  ／    ∣＼  ＼∣    ／  ＼
+          □－□－□  □  獅  □  麗－□  □  □－□  □－□－□－入
+            ／        ∣＼    ∣＼      ／  ＼∣  ∣  ∣
+          □      □－□  □－□  □  □－□  火  鳥  金
+                    ＼            ∣＼  ／      ＼
+                  □－□  □－□  □  □      □  □
+                        ／    ∣／∣    ＼      ＼∣
+                      □      吼X □－FG  □      □
+                    ／∣      ∣          ∣
+                  □  □      □  □  □－□－□－□
+                                ＼  ＼      ／∣＼∣
+          □  □－□－□－□－□－□  □  土  □－□
+          ∣／                        ∣／  ＼
+      鳥－鳩－水              □－□－□      □
+        ／∣＼                  ／
+      馬* □  □              赤－鳩
+                                                                                
+                                                                                
+ 入: 起點 (東方大陸西邊的小黑兔 sw,n,w,w,w 就是 board west)
+ 金: 金線螽            -
+ 鳥: 鳥人              -
+ 火: 火妖              -                sp              12000
+ 蛛: 蛛魔              -
+ 蝠: 狐蝠              -
+ 樹: 樹靈              -破幻石塔入口    sp, delay       50000
+ 土: 土獸              -                sp              20000
+ 豹: 豹人              -                sp, clot, 骨折
+ FG: 赤獸, 麗紋石龍子  -
+ 鷹: 銀鷹武士          -                sp
+ 麗: 麗紋石龍子        -
+ 鳩: 黑鳩              -                                 8000
+ 蝶: 蝶神              -青寶石, 春雨箏  sp, -mp         50000
+ RW: 吼獸, 水獸        -                sp
+ 吼: 吼獸              -打死才能往南    sp, clot        22000
+ 赤: 赤獸              -                                 3500
+ 獅: 鷹獅              -
+ 霧: 霧獸              -
+ 水: 水獸              -                sp
+ 馬: 人馬              -白寶石          sp, 疲勞
+                                                                                
+ 另有眼鏡蛇 (follow,move,中毒,blind) 要穿 leggings 類或 boots 類可避免中毒.
+                                                                                
+                                                                                
+p.s. 1. 一進鐘鼓森林一定要先打死樹靈, 不然會一直 delay.
+     2. 鐘鼓的 mob 都是 auto k.
+     3. 森林裡除了有 mob 所在的地方之外都看不見, 所以藥最好放一部分在
+        身上, 醫生要醫只能在 mob 那一格才醫的到.
+                                                                                
+alias to 樹靈(from 入):
+do w,w,nw,sw,w,s,nw,sw,e,sw,nw,nw,ne,ne,nw,e,ne,w,w,sw,n,sw,n,ne,e,e,n,se,se
+ (north 就是樹靈啦)
+alias back to 入口:
+do nw,nw,s,w,w,sw,s,ne,s,ne,e,e,sw,w,se,sw,sw,se,se,ne,w,ne,se,n,e,ne,se,e,e
+ (from 樹靈 south)
+                                                                                
+                                                                                
+----
+                                                                             
+                                                                              破幻石塔
+                                                                                
+                                                                                
+        瑪*                     僨*
+        nu                      nu
+        □                      □
+          wu                  eu
+            □—□—※—□—□
+              wu          eu
+                □—起—□
+                                                                                
+                                                                                
+ 從樹靈: enter, enter tower
+                                                                                
+ 起: 進來的地方
+ 僨: 虎僨 (no auto)    -九環紫金刀, 黑寶石  sp, delay
+ 瑪: 瑪干 (no auto)    -風雷棍, 紅寶石      sp,
+                                                                                
+ ※: 拿漫天飛雪槍的地方 (須中立, 高 str, trainer or cf 吧)
+     1. look eyes,touch eyes,up (-hp 8x ,1 clot , 中箭, delay)
+     2. settle gems into holes,up
+     3. draw lance,jump out (-hp 非常多, 看過 hp 310 一跳就 fly)
+                                                                                
+or   1. look eyes,touch eyes,up
+     2. settle gems into holes
+     3. 弄個 alias: do up,draw lance,get all,down
+        然後跑 alias (有疲勞)
+     4. 叫人 touch eyes 讓你下來 (所以要有另一人在 touch eyes 那等)
+                                                                                
+     -> draw lance 有疲勞
+                                                                                
+                                                                                
+p.s. 鐘鼓的怪物聽說是幾乎都有 sp, 但我是用盜賊去, 跟別人去也是高等級
+     修羅 (horns tail 2x), 盜賊刺幾下或修羅巴幾下就掛了, 所以很多 sp
+     不清楚...尤其是小隻的...但是很多 sp 是真的很猛, hp 扣超多的.
+	 
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          },
+		  
+		  七星一樓: {
+            mapText: `
+
+
+
+__                                                               毒
+                                                                 ∣
+                                                                 □
+                                                                 ∣
+                                                                 □
+ turn left,turn right,n,n,n,n                               en waterfall
+ 慕容風, 紅袍銀衛             climb－□                          衛      狂－□
+    ↘                           ∣  ∣                          ∣      ∣  ∣
+ □  ■                      □－楚－□                          □  □－□－□
+ ∣  ∣                      ∣  ∣  ∣                          ∣  ∣  ∣  ∣
+ 劍－□                      □－□－衛                          □  □  □  帳
+ ∣                          ∣  ∣  ∣                          ∣  ∣
+ □            look canvas   □－□－□                          □－□
+ ∣　　　　 　 move canvas ↘∣  ∣  ∣                          ∣
+ □　　　　　　move ironbox  衛－□－□                          □
+ ∣                              ∣                              ∣
+ □　　　　　　　　　　　　　　　殭 put goldsteelpearl in 眼眶   □
+ ∣  draw book from 書架         ∣                              ∣
+ □     出現west  (bookshelf)    □                              □
+ ∣         ↘                   ∣                              ∣
+ □－□－□－□　　　　          □   pull 青銅火把 str >23      □
+↗           ∣                  ∣↙(pull bronze torch)         ∣
+這附近會 獄－□－□＋衛－□－□－□－□－□－□－刀－□－□－□－□  search 爐
+中金蠶蠱     ∣                  ∣                                ↙put 火眼
+毒 - hp      □                  □              listen picture  ⊙  in hole 出來search south
+        　                       ∣                        ↘    ∣
+                                 □ search hole              □－□－□
+                                 ∣                              ∣
+                                 任 push wall (3 次)             □      □－□
+       武－□                    ∣ - hp                         ∣      ∣  ∣
+       ∣  ∣                    □                    push wall □－□－□－仇
+       玄－□                    ∣                              ∣      ∣  ∣
+           ∣                    □－□－□－□－□－□－拳－□－Ⅹ      □－笑
+ push tree □                    ∣                           turn chair
+           ∣                    □                            c wall
+           蟾                    ∣
+           ∣                    □       Ⅹ處: 1. turn chair,n,n,open 石門
+           □ 這幾格會 - hp      ＋                兩隻銅豹
+           ∣                    帶             2. 再 n,n 青銅武者
+           樹                                   3. pull chain 聖心師太
+           ∣                                   4. 出來是 c wall
+           □
+             ＼
+               蜥
+             ／
+           □
+           ∣
+           ⊙       註: 兩個⊙為同一格 出來search south
+
+
+  毒: 毒手藥王 (sp)
+　任: push wall 三次出現任我行 (auto,sp)
+      push wall 兩次 - hp 2xx
+  殭: 星堡僵屍, 打死出現星堡狂魔 (auto,sp*)
+  楚: 楚狂 (auto,sp*) 打死後 bump screen (str 20) 有兩隻巨虎 (auto,follow)
+      打死巨虎得龍珠 put dragonpearl in hole 可往 n
+  狂: 狂戰士 (sp)
+  帳: 帳房老先生 (give book to boss 可得金鎖片,上三樓用)
+      (book 在torch n,n,n,n,w,look canvas,move ironbox 可得)
+　刀: 刀痴 (auto,sp)
+　拳: 拳痴 (auto,sp,follow)
+  劍: 劍痴 (auto,sp*)
+　仇: 公孫仇 (sp)
+　笑: 笑面虎
+  樹: 食人樹
+  蜥: 毒蜥蝪
+  蟾: 毒蟾蜍
+  獄: 地獄戰將 (sp,詛咒)
+  武: 武行者
+  玄: 玄難 (sp)
+  衛: 紅袍 銀/銅 衛 (sp)
+  帶: 七曜星堡帶刀衛
+  climb: 上二樓
+
+  另: 慕容風 (sp) 紅袍銀衛 (sp)
+      銅豹 (auto)
+      青銅武者 (sp)
+      聖心師太 (sp)
+
+
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          },
+		  
+		  七星二樓: {
+            mapText: `
+			
+【地圖】七星二樓
+                                                                                
+                     廚
+                     ∣
+                 □－□－□
+                     ＋
+                     金
+                     ∣
+                     □
+                     ∣
+                     □
+                     ∣
+                     銀
+                     ∣
+                     金
+                     ∣
+                     □
+                     ∣
+       search grass  □
+                   ↘∣
+            　   □－？         touch statue 3 次
+                 ∣  ||       ↙
+會移動           □  □－鯉  愁－□
+    ↘           ∣  ∣  enter   ∣
+ □－金－□－□－□  霸   hole   □
+ ∣                  ∣          ∣
+ □  □－夔          □          和
+ ＋  ∣              ||(bridge)  ∣
+ □－獸－龍  □－□－起          □－□      give trival to priest
+    ↗       ∣                      ＋       ↙
+open cage,   □              棋－□－□－□  呂
+search cage  ∣                           jump
+             □                          window
+             ∣
+         □－□
+         ∣
+         □← search 竹林
+         ∣
+     □－□－□
+     ∣  ∣  ∣
+     □－紫－□
+         ∣↖
+         藤  l statue, draw scale
+       ↗∣
+ remove  □                                              □ put godpearl
+ 樹藤    ∣                                              ∣  ∣     in hole
+         □                    auto k      read symbol   □  ∣  □－□
+         ∣                   ↙                    ↘   ∣　↓  ∣  ∣
+     □－□－□      □－□－金－□－□－□－□－□－咒－□－負－□－□－侯
+         ∣          ∣                                  ∣  ∣  ∣  ∣  ↗
+         □          ∣      □－□－□                  □  □  □－□ get
+         ∣          ∣      ∣　∣　∣                  ∣             pearl
+         □－□－□－金－□＋□－□－邪                  □
+                             ∣  ∣  ∣
+                             □－□－□
+                                                                                
+                                                                                
+                                                                                
+ 起: 二樓起點
+ 廚: 妙手人廚                                            sp
+ 金: 紅袍金帶衛士                                        sp
+ 銀: 紅袍銀帶衛士                                        sp
+ ？: 妖狐(？), search grass 可以 north                   sp
+ 鯉: 金色鯉魚
+ 愁: 白摩勒, 黑摩勒 (touch statue 兩次)                  sp
+     李莫愁 (打死白摩勒, 黑摩勒後再 touch statue 一次)   sp
+ 霸: 攔橋惡霸
+ 夔: 歐陽夔(碧血洗銀槍)                                  sp
+ 和: 老和尚
+ 獸: 巨豹, 巨獅, 巨虎, 巨象 (open cage, str > 20)
+     (打死後 search cage 得獸珠)
+ 龍: 大龍女(？？stone), 楊錯 (put beastpearl in hole)    sp
+ 棋: 棋手
+ 呂: 呂洞賓 (戰鬥中不能 jump window)                     sp
+     (give trival to priest 可以拿到雷雲咒)
+ 紫: 紫金戰神 (look statue, 只知道 ass, demon 可叫出)    sp
+     (打死後 draw scale, str>=20, 可以 south)
+ 藤: remove 樹藤, 可以 north
+ 咒: read symbol (雷雲咒) 可以 east
+ 負: 慕容負                                              sp
+     (打死後 put godpearl in hole, 可以 climb 上三樓)
+ 侯: 九幽侯                                              sp
+     (打死後 get pearl 得 godpearl)
+ 邪: 天邪鬼                                              sp
+
+
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          },
+		  
+		  七星三樓: {
+            mapText: `
+			
+【地圖】七星三樓
+                                                                                
+                                                                                
+            起 (down)
+            ∣
+            □
+            ∣
+            □
+            ∣                               enter 進入九宮奇門大陣
+            □                               put 龍涎 in hole 直接到五樓
+            ∣                        eu     ↙
+            犀              □－⊙  ⊙→⊙－扇   move rock(need str 20), down
+            ∣              ∣  ∣nu↑               ↙ 有迷路商人和寒冰草
+            □              ⊙－⊙－⊙－⊙－⊙－⊙－石
+            ∣              ∣  ∣  ∣  ∣  ∣  ∣  ∣
+            □          □－⊙－⊙－⊙－⊙－⊙－⊙－⊙    ⊙: 燙傷 -hp
+            ∣          ∣           ↖                       金毛禿鷹, 移動
+            □－□－□  □       drink juice                  sp, follow
+                    ∣  ∣     (可防熱一段時間)
+                    □  □
+                    ∣  ∣
+                    □－□
+                  ↗∣
+         eat corpse □
+                    ∣
+三眼巨人, 移動,     □
+SP+石化, follow,    ∣
+                    □－□－□－□－□－□
+                            ∣  ∣  ∣  ∣
+                            □  □－□－□
+                            ∣  ∣  ∣  ∣
+        □－□－蛟－□      □  □－□－□
+        ∣  ∣      ∣      ∣  ∣  ∣  ∣
+        □－□      □－□－湖  □－魅－□
+        ∣  ∣                  ∣  ∣  ∣
+        □－□                  □－□－□
+        ∣                      ∣
+        □ jump hole(離開)      ⊕(climb)
+        ∣
+□－將  □－兵－□             □－薩  □－□－⊕(jump)
+∣  ∣  ∣  ∣                     ∣  ∣
+□－□－□  □                 柔－□  Ⅹ(jump channel,hole)
+        ∣   bridge                ∣  ∣
+后  □－牆－□＝□－□             □－□
+∣  ∣   ↖     ∣  ∣                 ∣       (jump,climb)Ⅹ－長
+爐－□  l wall  □－□             □－□                   ∣
+↑     五爪金龍     ∣                 ∣                   □
+∣                  妃             □－□－□
+push 香爐 (str>25)                     ∣
+down                               巨－□
+螃蟹將軍, 龍王, 有龍涎
+(need 翠玉鑰匙開門)
+                                                                                
+                                                                                
+  起: 三樓起點
+　犀: 犀牛                                         sp
+  石: move rock (str>=20) 可以 down (不會燙傷)
+      迷路商人, 寒冰草(進迷宮用)
+　扇: 鐵扇公主                                     sp
+　蛟: 黑蛟                                         sp
+  魅: 山魅
+　兵: 蝦兵
+  牆: 五爪金龍
+　將: 龍族大將                                     sp
+　后: 龍后                                         sp
+      get key from desk(翠玉鑰匙, 開龍王那邊的門用)
+　妃: 龍妃(？？stone)                              sp
+　薩: 巨人族第一勇士--薩克                         sp
+　柔: 巨人族第一勇士之女--柔絲                     sp
+　巨: 巨人
+　長: 巨人族族長
+                                                                                
+Other:
+      三眼巨人                                     sp, follow
+      螃蟹將軍                                     sp
+      龍王(龍涎)                                   sp
+                                                                                
+      打死 鐵扇公主 後 enter 往 north 進入迷宮
+      * 若有 龍涎 -> put 龍涎 in hole 可直接到五樓起點
+      迷宮alias: 1. do n,c,e,c,s,c,w,c,n,c,e,c,n,c,w,c,n,c,w,c
+                 2. do e,c,e,c,e,c,s,c,s,c,s,c,w,c,w,c,w,c,n,c,n,c,n,c,
+
+
+
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          },
+		  
+		  七星四樓: {
+            mapText: `
+
+
+
+__     月
+
+
+
+ 月: 天月(sp)       exp 50000
+
+p.s. snicker....7* 四樓只有一格...and 一個 mob...
+     要上 5 F need ko him..不強的 sp...跑 3f 那個
+     alias 多次就會走到天月了
+
+
+
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          },
+		  
+		  七星五樓: {
+            mapText: `
+你仔細一瞧這些怪石居然組合成一個石梯的模樣，似乎是通往某處。 c
+
+
+__                          李
+                            ∣
+                            ○
+                            ∣
+                    藥      ○
+                    ∣      ∣
+            童  ○－○－○－○－－－○－○－雷
+            ∣  ∣      ∣              ∣
+Ku－○－○－林－○      ○              ○－烤
+                ∣      ∣              ∣
+                ○      ○              ○
+                ∣                      ∣
+                ○－○－○－○－○－○－鞋
+                    ∣  ∣              ∣
+                    Su  當              ○－酒
+                                        ∣
+                                        ○
+                                        ∣
+                                    果－○－書          Ef
+                                        ∣              ∣
+                                    餅－○              冰
+                                        ∣              ∣
+                                        ○              火
+                                        ∣              ∣
+                                    守－○＝○－○－○－○     飛霜
+                                        ∣
+                                        ○
+                                        ∣
+                                    命－○
+                                        ∣
+                                    ○－○－尼
+                                        ∣
+                                符      ○－○
+                                ＋      ∣
+                    塔－○－○－門－○－○
+                            ∣
+                            ○
+                            ∣
+                            圖 jump
+
+
+
+                                          sit chair 到 天師正殿
+      符望宮:                                ○－椅－○
+                        張                       ∣
+                        ∣                       ○
+                        ○                       ＋
+                        ∣
+                    魔－符－妖                   張
+                        ∣                       ∣
+                    ○－椅－物                   ○
+                        ∣                       ∣
+                        樹                   ○－○－○
+                        ＋                       ∣
+                                                 樹
+    圖 - 五樓起點, touch 圖騰 到 迷宮出口(4F起點)
+    椅 - sit chair 到 天師正殿
+    樹 - climb tree 回到 符望宮
+    張 - 張天師(Master Chung)      關主Exp 50000 sp
+    塔 - 守備塔   三層
+         白袍衛士                          50000
+    符 - 符望宮
+    ＋ - 鎖住的門
+    守 - 二位白袍銀邊衛士(White guard of silver)
+         move 酒瓶, press button -> ＝ open
+    火 - 離火泉守護狩                  Exp 50000 sp
+    冰 - 玄冰潭守護狩                  Exp 50000 sp
+    Ef - 邪火(Evil fire)               Exp 50000 sp
+    當 - 當鋪老板(Pawnshop boss)       Exp 30000
+    Su - 蘇夢枕(Sumoz)                 Exp 40000 sp
+    Ku - 關七(Kuansc)                  Exp 50000 sp
+    雷 - 雷損(Ransun)                  Exp 50000 sp
+    烤 - 食客(Eater)                   Exp 30000
+         烤肉店老板(Meat boss)  up     Exp 30000
+    李 - 李員外(Lee boss)              Exp 20000
+    藥 - 藥師(Doctor)                  Exp 30000
+    酒 - 酒店老板(Wine boss)           Exp 30000
+    果 - 乾果鋪老板(Fruit boss)        Exp 30000
+    書 - 說書先生(Speak man)           Exp 30000
+    餅 - 餅鋪老板(Cakes boss)          Exp 30000
+    尼 - 尼姑(Buddhist nun)            Exp 30000
+    命 - 江湖術士(Physiongnomy)        Exp 30000
+
+    林 - search 可以找到北方小徑
+    童 - 小童, help kid 可以得到青銅鑰匙
+    門 - close door, 須要青銅鑰匙
+    物 - take book from bookshelf 得到雲極七籤
+         lift 石板 得到天師籤
+    符 - tear symbol on west 可以打開西邊的門
+         tear symbol on east 可人打開東邊的門
+    魔 - 天魔(Sky Demon)               Exp 50000
+    妖 - 蛇妖(Snake Goblin)            Exp 50000
+
+
+p.s. 這篇偶直接拿 maddman 的來 post...懶得畫了..divert
+
+
+
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          }
+		  
+        },
+		
+		冰雪大陸: {
+          冰雪大陸全圖: {
+            mapText: `
+			
+			
+  Editor : Madman
+
+
+∣－／＼□∞Ⅹ○●
+→←↑↓↖↗↙↘⊕□■⊙                                                                         
+○●
+                                                                                                                                                     
+                                                              ○－○－○                                                                             
+                                                                      ∣                                                                             
+                                                          ○－○  首  ○－○                                                                         
+                                                          ∣  ∣  ＋  ∣                                                                             
+                                         search specimen  標－○＋○－○＋○－？                                                                     
+                                                                  ∣                                                                                 
+                                                              ○－○  ○－○     clear, check box...grin                                                        
+                                              ╭══╮        ∣  ∣  ∣  ∣                                                                                    
+                                              ║山寨║        ○－○  ○－○                                                                                    
+                                              ╰══╯        ∣  ∣  ＋                                                                                        
+             玄－●                                           塔－○－○                                                                                        
+                 ∣                                               ＋                                                                                                                                                  ∣            
+                 ●                                               ○                                                                                            
+                 ∣                                               ∣                                                                                            
+ 虎＝雕－雕      ●      ●－洞                                   ○                                                                                            
+     ∣  ∣      ∣      ∣                                       ：                                                                                            
+     ●－雕－像－●－●－鼠                    put stone in hole  牆              ■－■－■－■                     ■－犬－■－■                             
+                 ∣                                               ∣              ∣          ∣                         ∣      ∣                                                                                   ∣            
+    push statue  ●                                       ○－○－草  move grass  終      ■－■                         ■      鼠－■                                   
+                 ∣                                     ／                                ：                             ＋          ∣                         
+                 ●                 ╭═════╮    茲                                  北                     妖      ■          火  -hp 20                 
+     ╭══╮      ＼               ║卡納傭兵團║    ∣                                  ∣                     ∣      ∣          ∣                         
+     ║魔界║        樹             ╰═════╯○＋銀－弓－○               ╭══╮   ■                 花－⊕－鼠－蝙－■＋犬－■                         
+     ╰══╯                                         ∣  ∣  ∣               ║礦坑║   ∣                         ∣      ∣                                                                                       ∣            
+                                              席＋○－○－○－○               ╰══╯   ■＝囚                     蠍      ■                                 
+                                                  ∣  ＋  ∣                              ∣                         ∣      ∣                                 
+                                              弓＋○  卡  ○＋鷹            ╭═＋■      ■                 ■－■－火      ■      花－⊕－花                             
+                                              ∣  ∣  ＋  ∣  ∣            ║    ∣      ∣                 ∣  ∣  ∣      ∣      ∣  ∣  ∣                 
+                                              ○  ○－○－○  ○            ║    ■－■－■      梯         瘋－鼠－犬      ■      ⊕－⊕－⊕                 
+                                              ∣  ∣  ∣  ∣  ∣            ║            ∣      ∣                 ∣      ∣          ∣  ∣                 
+                  ○－○－開－○              史＋○－○－史＋○      ○－○＋            雕－■－■－■－■－巨     ■      ■          花－⊕                 
+                      ∣  ∣  ∣                      ＋              ∣  ∣              ∣＼∣      ∣                     ∣          ∣                     
+                      ○－雕－○              ○－○－銀－○－○en○－○－○          ■－■－■      ■                     ■          ⊕                     
+                      ∣  ∣  ∣                      ∣                                      ∣      ∣                     ∣          ∣                     
+      嬰－○          開－○－○  ╭═══╮          ○                  乞－商              ■      ■             ■－■－影－■－■－■                     
+      ∣  ∣              ∣      ║遊樂場║          ∣                  ∣                  ＋      ∣                     ：                                 
+      雕－○－○－○      ○      ╰═══╯          ○   ╭═══╮ 銀－○          花      藤      南                     梯                                 
+                  ∣      ∣                          ∣   ║艾諾村║     ∣        ／        ∣                                                                
+                  ○      ○          ○              ○   ╰═══╯ ○－○－○－○－歷  岩－○  ○                                                            
+                  ∣      ∣          ∣              ∣              ∣      ＋  ∣            ＼∣                                                            
+              ○－○－○－池－○＋門－○－○－○      ○－兔      藍－○      傳  ○              ○－○－飛                                                    
+              ∣  ＋      ∣          ∣      ∣      ∣  ∣          ∣          ∣                  ∣                                                        
+              ○＋○      ○          ○      ○－○－○－○          ○      村＋○                  ○                                                        
+              ∣          ∣                              ∣          ∣      ＋  ∣                ／                                                          
+      ○－○－龜          ○                              樵－○－○－○－○－○－○－○－＋－○－○                                                            
+      ∣  ∣  ∣          ∣                                              ＋      ∣              ∣                                                            
+  ○－○－○－○      ○－○－○                                          醫  武－○              ○                                                            
+  ∣  ∣  ∣  ∣      ∣  ∣  ∣                                                  ∣              ∣                                                            
+  ○－雕－○－○－○－○－○－雕                                              錢＝○－薩      塔－○－○－○－⊙－⊙                                            
+      ∣              ∣  ∣  ∣                                                              ∣                  ∣                                            
+      ○              丑－○－○                 ╭════╮                                 狐                  ⊙                                            
+                                                 ║迷霧森林║                                       ╭═══╮      ＼                                          
+                                                 ╰════╯                                       ║雪人村║        ⊙                                        
+                                                                      塔  c,jump                    ╰═══╯        ∣                                        
+                                                                      ∣          爬wu⊙                  ⊙－佛      ⊙                                        
+                                                  ○－猩              ○                ＼                ∣          ∣                                        
+                                                  ∣  ∣              ∣                  ⊙wu⊙      布＋⊙＋村      ⊙                                        
+                                              ○－景－○－○－○－○－蛇                        ＼        ∣          ∣                                        
+                                              ∣  ∣          ↓                                  ⊙－⊙－戰－⊙－⊙－⊙－洞  en hole,d,d,ed,sd,sd,out          
+                                              ○－○          爬                                ／        ∣                                                    
+                                              ∣  ∣          ∣                              雕      雷＋⊙＋平                                                
+                                          蒙  ○－豬－○      狐＝屍   search corpse           ∣                                                                 
+                                        ／            ∣                                      塔                                                                 
+                                      獸  人          ○    move tree                                                                                           
+                                      ∣  nu          ∣                                                                                                        
+                                      ∣  ⊙          使                                              洞   remove cirrus,en,nu,nu,wu,c,c,c rope,                
+                   ╭════╮       ∣  nu                                                            ＼                                                      
+                   ║魔獸森林║       ⊙－⊙  瀑                                                          ⊙                                                    
+                   ╰════╯       ∣  ∣  ∣                                                          ∣                                                    
+                                      ⊙－⊙－⊙                                                          ⊙                  將  眼－雙                        
+                                      nu  nu  nu                                                            ＼                ∣  ∣  ∣                        
+                                      ⊙－⊙－⊙－屋                                                          ⊙  ⊙－⊙－⊙＋⊙－⊙－⊙＝⊙－淵                
+                                    ／∣  ∣  ∣                                                              ∣／            ∣  ∣  ∣                        
+                                  ⊙－⊙－⊙－⊙－⊙                                                          野              ⊙－眼－龍     jump abyss         
+                                  ∣  nu  nu  nu  nu                                                          ∣              ∣                                
+                                  ⊙－⊙wd⊙－⊙－⊙                                                          ⊙              魔－藥                            
+                                  ∣  ∣  nu  nu  nu                                                          ∣                                                
+                                  石－⊙－⊙－⊙－⊙                                                          ⊙          ╭═════╮                        
+                                      ∣  ∣  ∣  ∣                                                        ／            ║魔法師公會║                        
+                                      ⊙－⊙－⊙－⊙－⊙              ╭═════╮                  ⊙－⊙              ╰═════╯                        
+                                      ∣  ∣            ＼            ║陰陽五行陣║                ／      ＼                                                  
+                              ⊙－⊙－⊙－⊙      主      ⊙          ╰═════╯              縫          ⊙－⊙                                            
+                                      ∣          ∣      ∣                                      ∣  search hole ∣                                            
+                                  ○－○－蟬  ○－○－劍  鹿          ∞      ∞  ∞              ⊙－洞          ⊙                                            
+                  ╭═══╮      ∣  ∣  ∣      ∣      ∣          ∣      ∣  ∣            ／              ／  ＼                                          
+                  ║米克城║      ○－池－○      ○      ⊙－⊙      ⊙  弓－禿－⊙wu石－⊙－⊙          獅－⊙      ⊙－⊙              ⊙－⊙－⊙            
+                  ╰═══╯      ∣  ∣  ∣      ∣      ∣  ∣＼  ／    ∣  ∣＼∣  kick                            ∣    ＼            ∣      ∣            
+                                  ○－紫－○  藥－○－傳  ⊙－⊙－盜－□－⊙－⊙－蜥                                  ⊙      ⊙ed⊙－⊙－⊙  梯－⊙            
+                                          ∣      ∣      ∣  ∣  ∣  ∣  ∣  ∣                                      ∣                  ∣      ∣            
+                          馬  ○  酒  ○  ○  廟－○－○＋⊙－⊙－⊙－⊙－□－⊙                                      ⊙                  ⊙－⊙－⊙            
+                          ∣  ∣  ∣  ＋  ∣      ∣      ∣  ∣  ∣  ∣  ∣  ∣                                    ／  ＼                                      
+                      亞－○－○－塔－○－塔－○－○－不  ∣  ∣  ∣  ∣  ∣  ∣                                  魔      ⊙              ⊙－⊙－⊙            
+                          ∣  ∣      ∣      ∣  ∣      ∣  ∣  ∣  ∣  ∣  ∣                                  ∣      ∣              ∣      ∣            
+                      騎－騎  銀      ○      武  商      蟲－⊙－⊙－⊙－礫－⊙                                  ⊙      ⊙＋⊙          ⊙－梯  祭  pray      
+                                      ＋                ／                                                          ＼  ／                ∣      ∣            
+                              蟻－⊙－門－⊙－⊙－－－⊙                                                              ⊙                  ⊙－⊙－⊙            
+                                  ∣  ∣  ∣                                                                                                                    
+                                  船－販－⊙                                                                                                                    
+                                      ∣                                                                                                                        
+                                      ⊙                                                                                                                        
+                                      ∣                                                                                                                        
+                                  港－⊙                                                                                                                        
+                              (3000,1600)                                                                                                                       
+							  
+							  
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          }
+        },
+		
+		南極大陸: {
+          南極大陸全圖: {
+            mapText: `
+                                                                   
+__                             碼                                   
+                               ∣                                   
+                               ○                                   
+                               ∣                                   
+                               ○                                    
+                               ∣                                   
+                               ○－屋                               
+                               ∣                                   
+                               ○                                   
+                               ∣                                   
+                           ○－靈－○－○－○－○－○               
+                           ∣  ∣      ∣                           
+                           熊  ○      商                           
+                               ∣                                   
+                               站                                   
+                                                                    
+                                                                    
+                                                
+												
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          }
+        },
+		
+		西方大陸: {
+          桑妮鎮全圖: {
+            mapText: `
+
+Editor : Isaac
+這些map 是很早就完成的, 所以會有一些錯或是沒發現到的地方
+, 還請多多指教.
+　　　　　
+
+釣--釣客, 可學flee到75                          釣─○          Ｔ─○
+Ｔ--throw 物品 to sea                           │                  │
+    不知有什麼祕密                              ○                  販
+                                                │                  │          **********
+                                          隊    ○          港      ○　　　　　* 桑尼鎮 *
+                                          up    │          │      │          **********
+                                          蟲    ○─侶─○─○─○─○                                                          筍    **********
+                                          up                sd                                                                  │    * 黑竹林 *
+                                          守                探                                                              ○─○    **********
+                                          up                sd                                                              │  │
+徒--clean window                          蟲        徒─藥  守  武  ○          歐      ○                          ○─○─○─○─○─○─○
+    可以打破玻璃.                         up            │  │  │  │          │      │                          │      │  │          su
+歐--OZ SP, careful                        守＜───en─○─○─○─○─○─○─○─○─○          球─告─○─○─獵      竹─○          Ｂ
+                                                    │      │      │              │  │          │  │          │      │  │          │
+                                                銀─○      ○      ○              吉  ○─○─○─○  ○          ○─○─○─○─○─○eu○
+吉--SP earthcage,能量風暴                           │      │      │              │  │              │                      │        ／northeastup
+                                                    ○  ○─狗  ○─○─生          ○  ○              ○                  Ｑ  蚊      ○
+                                                    │  │  │  │  │                  │              │                    ＼│    ／
+                                                商─○─店  ○─混  ○              查─○─可          ○─精en矮              石northeastup
+                                                    │  │  │      │                  │
+                                                    ○  ○  ○      ○─菜─皇─蘿  洛─○─○
+                                                    │      │      │          │                      Ｑ--Q27 cut bamboo
+                                                    ○─○─○─○─○─座      ○                      Ｂ--bamboo , pray bamboo, 可以到精靈王-Ｓｔｏｐ e,e,e,e,c 
+                                                    │          │  │                                  竹--竹節蟲 , blind                              要holy warscore 5000 殺死矮人
+傳--傳送站, witch's SP : mela 3                     店─工      傳  ○                                  蚊--blind
+            earthwall careful                       │                                  筍--use q1's shovel dig bamboo, get bamboo,
+                                                    ○              │                                      have mob, poison只是挖竹筍會中毒
+                                                    │              │                                  PS--進來前如果還想出去記得帶shovel
+                                                ○─○              ○
+                                                │  │              │
+          谷--迷幻峽谷..                谷─○─○─○─○          ○
+                                                │  │  │          │
+                                                ○─○─○          ○
+                                                │  │  │          │
+                                        ○─○─○─牛─○      ○─○─○─○
+                                            │  │  │  │      │  │  │
+                                            ○─○─○─○─○─牛─○─○
+                                                │  │  │  │  │  │  │
+                ○─○                          ○─○─○─○─○─○─○
+                │                              │  │  │  │  │  │
+                ○              ○─○      ○─○─○─○─○─○─○─○
+                │              │  │      │  │  │  │  │  │  │
+        ○─○─○─米      ○─蠍─○─○─○─○─○─○─○─休─○─○
+                │          │  │          │  │  │  │  │  │  │  │
+                ○          ○─○          ○─○─○─○─○─○─○─○
+                │          │  │          │  │  │  │  │  │  │
+            ○─○─○      ○─○─○      ○─○─○─○─綿─○─○
+            │  │  │      │  │  │      │  │  │  │  │      │
+            ○─蜈─○─○─○─○─○      ○─○─○─○─○      ○
+            │  │  │      │  │  │      │  │  │  │          │
+            ○─○─○      ○─○─○─○─○─○─○─○          ○
+                            │                          │          │
+                        ○─蜈                          ○          ○
+                                                        │          │
+                    ○                  ○          ○─○─鹿─○─○─○
+                    │                  │          │  │  │  │      │
+                ○─○      ○─○─○─○─○─○─○─○─○─○      ○─○
+                │          │  │  │  │  │      │  │  │  │      │
+            傑─○      ○─○─○─○─○─灰      ○─○─○─○      ○
+                │      │  │  │  │  │  │      │  │      │
+                ○─○─○─○─○─松─○─○─○─○─○      ○─○
+                │  │  │  │  │  │          │  │              │
+            ○─○─○─○─○─○─○          ○─○              ○
+            │      │      │  │              │  │              │
+            ○      ○      灰─○              ○─○      ○─鹿─○
+            │                  │              │  │          │
+            ○                  ○              ○─○          ○
+
+          傑--ask jack about bean
+              進入夢境
+          米--nw ,往米羅喀沙漠
+              se ,到蠍子的w 那格
+          休--休息(rest) ,可到......不知那裡稱作什麼.
+
+
+
+
+
+
+
+
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          },
+		  
+		  沙漠: {
+            mapText: `
+
+
+Editor : Isaac
+這些map 是很早就完成的, 所以會有一些錯或是沒發現到的地方
+, 還請多多指教.
+
+    　　米羅喀沙漠
+
+
+                        ○
+                      ／  ＼
+    　　○─洞─○─○─○─○─○eu○ed○
+        │      │  │      │  │      │
+    ○─○      樹─水─百─○  桃      ○
+        │    ／      ＼                │
+　　    飯─駱─駱      ○              ○　
+                │        ＼
+                Ｑ          金─珊
+                                  ＼
+                                    ○
+PS--路上會有吉普賽人在走              ＼
+    會石化                              米
+洞--search hole....grin 
+    響尾蛇(Rattler) 打死後有蛇鈴(Snake Bell)
+樹--climb tree....can cull jujube
+    eat jujube add tp
+飯--飯匙倩  (有迷你眼鏡)
+駱--駱駝
+Ｑ--(Q27)look sand....鍋鏟 dig....
+水--gaze water....進入疑人鎮
+百--百步蛇
+桃--桃竹夾
+金--可以淘金....pan 沙金
+珊--珊瑚蛇, 有蛇膽
+流浪的吉普賽人(Gypsy)
+吉普賽人 : 1.吉普賽人 說:只有我們懂得怎麼解蛇毒，快問我們(inquire 百步蛇毒)吧。
+            inquire 百步蛇毒  你要付我4000元(pay gypsy)我才願意幫你施打！！
+           2.吉普賽人 高聲地唱著: '你想知道致富知道嗎？快向我請教吧(inquire rich)'.
+沙漠跳鼠(Jerboa): 會亂跑 easy mob
+               
+
+
+          疑人鎮
+                                            ○
+                                            up
+        郵          ○─銀　　　　　邦─蟲─探
+        │          │                     down
+        ○─○─○─○─○─○              死
+        │  │      │     down
+        守  藥  探─○─商  火
+        │          │
+    女─舍─男      月
+
+女--女生宿舍....進入條件--女生,白天
+    有竹蓆
+男--男生宿舍....進入條件--男生,白天
+    有防蚊液
+守--守衛
+舍--舍監
+月--可以作月光浴....條件--竹蓆,防蚊液,晚上....grin
+探--探險者公會
+火--火坑....jump pit, 出去的方法
+死--死亡, SP
+
+
+
+
+
+
+
+
+
+                                休  休--休息(rest)接西方大陸
+此處的地形多為　　　　　　　　　│
+eu,ed,wu,wd,sd,su           ┌─┼─┐
+nu,nd的,所以我懶得          │  │  │
+寫....不過平面的地      巢─┼─┼─┼─狐
+形如右..可能會有些錯誤  │  │  │  │  │
+。          王      ┌─┼─┼─臭─┼─┼─┐      狗
+            │      │  │  │  │  │  │  │      │
+            熊─○─┼─┼─┼─狗─┼─┼─┼─○─狗
+            │      │  │  │  │  │  │  │      │
+            ○      └─┼─┼─牛─┼─┼─Ｑ      ○
+                        │  │  │  │  │
+                        五─┼─┼─┼─┘
+                            │  │  │      Ｑ--look item , 到另一格 have sign
+                            └─┼─┘          , don't look sign ,look box
+                                │              , draw 釘子 , that is Q27
+                                ○              , look sign 回到 狐狸
+                                │
+                            王─虎─后
+
+
+
+
+
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          },
+		  
+		  龜村: {
+            mapText: `
+○
+
+Editor : Isaac
+這些map 是很早就完成的, 所以會有一些錯或是沒發現到的地方
+, 還請多多指教.
+
+                土                            土--土投鼠, splash 可以玩遊戲,
+              ／                                  用九宮格設那九個洞很方便
+      neu 　○eu○─○              Ｑ        Ｑ--Q27
+        　／        │            ／
+    冒─○  村─○─○          ○en傑        傑--傑路剛帝士, SP 很多種
+        nu                    ／                  SP block, SP 打全部的人
+        ○              巢─蜂
+        nu                    ＼
+　　　　枝wu○─Ｊ  　　　　　　Ｃ            Ｃ-- c 可以到 Ｊ
+            nu                    ＼          Ｊ-- jump  到 Ｃ
+            花                      ○──獅  獅--auto 攻搫力強
+枝--樹支(wood), take wood                 │
+    can nu                                蚱
+巢--kick nest, 工蜂, 虎頭蜂出現,          │
+    auto , follow , poison                ○─○      ○
+    blind                                     │      │
+村--二隻守衛, 入村方法如下:               ○─○      ○─○
+    1.leap 竹籬笆 , by dex la.            │          │
+    2.move stone ,by str or int   ○      ○      海─牛
+      str > ? (沒試過 tr 不行)    │      │      │  │
+      int : mp > 360              ○─○─○      ○─○
+                                  │      │      │  │
+                                  ○      ○─○─○─○
+                                          │  │      │
+                                          ○─○      ○
+                                              │      │
+                                              ○      ○
+
+
+
+
+                            特　　　托　　　村                    Ｗ─○─○─○─監
+                                                                  │
+          村                                                  囚  ○
+          │                                                  │  │
+          ○─青─○─○                            ○        崖eu○
+                      │                          ／
+                      琴─○─崖            ○─○─○
+                    ／│＼              隊        ＼
+                  布─水─傑              ＼        ○─Ｍ
+                    ＼│／            文──○          │
+              商  　  潘          腿    ＼／    ○      青  荷　琴　道　潘
+              │  　    ＼        │＼  ／＼  ／  ＼    │  │  │  │  │
+          銀wd○─○─青─○─守─○  荷    穆      守─○─○─○─○─○
+            ／    │  │    　│    ／        ＼  ／    │  │  │  │  │
+          ○      武  藥      休  蟻─鼠    ○─○      穆  布  柯  傑  鐵
+
+
+
+特托村有一項設計滿有趣的, 裡面的mob 會隨著日落日出而改變他的位置, 白天時守衛都在站崗, 
+而住宅區的mob 則是在白天在外面. (住宅區的mob我忘了, 也可能是白天在外面)
+
+休--守護神休息室, 到了晚上, 守衛型的mob 都會到這裡.(soldier SP berserk,leader SP cb)
+水--會叫出各種魚, 有的有SP, 小心食人魚(goto,sp)
+    另外丟錢(read sign)可以許願哦(要丟多一點才有效..hehe)
+商--懷特會召喚出火龍,ko 懷特有智者之杖, 這各可以up, up 後有一些秘密, 我忘光了
+藥--k 老闆會關門放狗, 四隻狗, 攻擊力強, 2F search room or search 藥, (小心老闆在時不要
+    search ,他會上來打你), 會找到東西, 拿給桑尼鎮小吃店老闆得到好東西(hp and mp all full)
+青--二隻龜, boy have SP, follow(很弱)
+崖--skip scarp  可以到另一邊(dex 要夠), 如果掉下去的話, 就只能jump river隨波逐流啦..    
+Ｗ--你可以在這裡寫字
+監--ko監獄龜將會打開turtle war .
+隊--守衛隊長, SP cb, ko have key, destroy lock 可以架橋, dex 不夠的玩家可以由這裡到
+    懸崖的另一邊.
+Ｍ--touch mimosa , mp and hp all full, but some time 會"出鎚".
+鼠--push bed ,會出現老鼠, 注意!!  女性char會不能動, 只有等別人來ko mouse.
+荷--荷莉 , SP 變態.
+琴--琴 , SP 召喚出精靈(風, 火, 雷, 冰). 四種精靈都有SP
+    風--SP  忘了..blush
+    火--SP炎之矢(這個還好),另一種name忘了, 打壞全部EQ, 威力也很強.
+    雷--SP  打壞WP
+    冰--SP  用mage去打時, 中SP沒感覺.
+(精靈的破壞eqs 只是將其特殊加減的東西消除(skills 那類的), 防禦還在
+道--肉肉.
+潘--SP  畫畫, 沒感覺.
+穆--村長 SP 變態, 跟副村長荷莉狼狽為奸, SP 都很變態.
+傑--SP 忘了...blush(但是滿強的).
+柯--好像不能打吧..可以打的話也是肉肉.
+布--SP  進入異空間)有點類似goblin)等時間一到選一個門出去, 選對是安全, 錯的話- HP,
+    另外, 出來時會被傳送到附近.
+鐵--SP berserk, 你可以sale shell to liu , 以高價賣出shell..grin
+
+
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          },
+		  
+		  夢境: {
+            mapText: `
+○                         夢         境
+
+Editor : Isaac
+這些map 是很早就完成的, 所以會有一些錯或是沒發現到的地方
+, 還請多多指教.
+
+        有些是憑印像寫的, 像是put wand 這些啦,可能會有一點小錯誤,
+        不過大部分都是對的, 特別感謝 lark and ariadne , 每次都是
+        找ariadne 陪我來.
+
+
+
+屁--屁屁小山豬, SP clot 很深,autu k                       ○
+                                                          │
+樹--c tree, have cat,                   樹──花          屁
+    no SP ,jump back 樹               ／      │          │
+花--pluck flower,                   ○        ○          ○
+    have elf, no SP               ／          │          │
+    , but can't move            ○            ○─○─○─瓦─○─Ｇ
+    auto k                    ／              │          │
+Ｓ--起點　　　          　　Ｓ                派          ○              ○
+瓦--瓦特美羅,                 ＼              │          │              │
+    二次SP會爆頭,               Ｊ            ○          ○          瓜─Ｗ─○
+    down 到 Ｗ                                │          │              │
+派--派艾波,SP                   魚            ○          ○              ○
+    也會爆頭                    up            │
+瓜--小瓜, SP                    ○            ○
+    會身骨折                   hole           │
+魚--SP, 而且這格                回到Ｋ        Ｋ
+    會- HP,所以小心
+Ｊ--jump 到魚
+
+
+
+
+Ｇ--do e,s,w,n,ne,nw,se,sw (打二, 三次)可以到 杜藍恩女王
+    ( 路途中有二隻mob auto follow , 衝快一點就沒事了 )
+從杜藍恩女王回瓦特美羅方法為 : 杜藍恩女王那格一直按w
+
+
+
+
+向--向日癸一家                              向                  ○
+    保姆有SP(很有趣唷!!) , 攻擊全体         nd                ／
+    如果先打baby, 保姆                      ○              ○
+    會打你.                                 │            ／
+蝴--butterfly                    蝴          ○  ○─○─水
+    ko have                      │          │／neu       ＼
+    butterfly key                ○     neu  ○              壁
+                                 │        ／│
+杜--藍恩女王             ○─○─杜─○─○　○                    ○
+    no SP                        │          │                    │
+    can down to 家               ○          Ｊ                ○─家─○
+                                 │      洞─火                    │
+瀑--kick stone                   瀑                                ○
+    (str 要夠)
+    好像有門鎖著用butterfly key open
+    (search hole 會得到冰雪水晶,
+    感謝lark全力幫助)
+Ｊ--jump hole can to 火
+火--火焰精靈, SP, auto k, ko have key ,can west
+洞--put catwand or place catwand ba..can down
+    down can get doll.
+水--search pool , get catwand , 這格二隻mob can't k
+壁--put doll into hole ..ba
+    可以到一個洞裡, 裡面的迷還沒解出來..
+
+
+
+
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          }
+        },
+		
+		惡魔島: {
+          惡魔島本島: {
+            mapText: `
+【地圖】惡魔島
+                                                                                
+                                                                                
+                                                                                
+        怪－○                      ○→塔
+            ∣                      ∣
+            ○－釣              ○－○
+                ∣              ∣
+                ○－○－碼－蟹－○
+                ∣  ∣  ∣  ∣  ∣
+                ○－○－○－○－○
+                        ∣
+                        ＋      旅
+                        ∣      ∣
+            商－○－○－○－○－○
+                ∣              ∣
+                ○  骨－○－骨  ○
+                ∣  ∣  ∣  ∣  ∣
+            票－守＝○－下－○  ○－吃
+                ∣  ∣  ∣  ∣  ∣
+                ○  戰－○－魔  ○
+                ∣              ∣
+                ○－○－？－○－○－賭－銀
+                ∣              ∣
+                惡              傳
+                                                                                
+                                                                                
+----------------------------------------------------------------------
+                                                                                
+  B1                   鯊      鯊
+                       ∣      ∣
+                   逃－○－鯨－○－○
+                           ∣
+                       ○－○－○           官
+                           ∣               ＋
+                           ○           ○－○－○
+                           ＋           ＋  ∣  ∣
+                       手－○－門(enter)門－兵－車＋下  到 B2
+                       ∣  ∣  ∣       ∣  ∣  ∣
+                       ○－up－○       ○－○－○
+                       ∣  ∣  ∣           ∣
+                       ○－魂－○           ○
+                       ∣                   ∣
+                       修                   鈕  press button,enter
+                       ∣
+                       修
+                                                                                
+----------------------------------------------------------------------
+                                                                                
+  B2
+                                                                                
+                 長
+                 ＋
+             ○－官－兵－兵
+             ∣      ∣  ∣
+             ○      兵－兵  械
+             ∣          ∣  ＋
+             壁－○－○－○－○－官－○－○＋up
+        enter        ∣          ∣
+       到海底洞窟    ○          兵
+                     ∣
+                     官
+                     ∣
+                     ○－○－○－○－○－下
+                             ∣  ＋
+                             福  ○－閥
+                                                                                
+----------------------------------------------------------------------
+                                                                                
+  B3
+                                 獅      虎
+                                 ＋      ＋
+                             ○－○－○－○－○－up
+                             ∣
+                         象＋○
+                             ∣
+                             ○
+                             ∣
+                         熊＋○
+                             ∣
+                             ○
+                             ∣
+                         蛇＋○      下－○－○＋風
+                             ∣              ∣
+                             ○              ○
+                             ∣              ∣
+                         馬＋○              ○＋火
+                             ∣              ∣
+                             ○－○－○－○－○
+                                 ＋      ＋
+                                 石      冰
+                                                                                
+----------------------------------------------------------------------
+                                                                                
+  B4
+                               蜣
+                               ∣
+                               ○
+                               ∣
+                               ○
+                             ／∣＼
+                           ○  ○  ○
+                         ／    ∣    ＼
+                       螳      ○      螞
+                               ∣
+                              rope
+                             ／  ＼
+                   鯉      ○      ○      膽
+                   ∣    ／          ＼    ∣
+                   ○  ○              ○  ○
+                   ∣／                  ＼∣
+                   ○                      ○
+                 ／  ＼                  ／  ＼
+               ○      ○              ○      ○
+             ／          ＼          ／          ＼
+           蜘              鷹      豹              狼
+                                                                                
+----------------------------------------------------------------------
+                                                                                
+  B5
+                            c rope
+                              ∣
+                              ○
+                              ∣
+                              ○
+                              ∣
+                              ○
+                              ∣
+                              戴
+                                                                                
+----------------------------------------------------------------------
+                                                                                  海底洞窟 + 諾特柏高原( 算在 B2 )
+                                                                                
+           往北可以到fly land   ps. 現在如果要從這到飛行大陸只有飛行大
+                   ∣               陸在飛的時候 ,以後就不知道了
+                   高
+                 ／∣＼
+               ○  ○  ○
+             ／    ∣    ＼
+           ○  傳－○  藥  ○ pizza
+         ／        ∣  ∣    ＼∣      進:n,n,w,n,w,n,w,n,w,n會到Pizza店
+ ?-丸－高－○－○－修－○－○－高－○  出來就到Pizza店的s,e然後10 s
+  ↘     ＼    ∣  ∣        ／    ∣
+ abcd?     ○  銀  ○－商  ○      ○－○
+打工的地方   ＼    ∣    ／       ↙   ∣
+               ○  ○  ○   out :      ○－○
+                 ＼∣／  do s,e,s,e,s,e,sd ∣
+                   高                      ○
+高原人(打死後cut head +mp 50)              ∣
+高原的四個護衛會到處走                     ○
+                                           nu
+ps. 一攻擊修士, 全聖域所有人會攻擊你,      ○wu○wu○
+    all shop 都進不去!!                            nu
+    打死高原人或其他走來走去的人, 除               ○
+    了修士, 其他所有人會攻擊你, shops              nu
+    還是可以進去!!老闆不會攻擊:>                   ○
+    有五個 LV 19 mob 會到處走來走去!!              nu
+    開打之後要小心!!                               ○
+                                                   ∣
+                                                   ○
+                                                   ∣
+                                                   ○
+                                                   ∣
+                                   傳              ○              傳
+                                     ＼            ∣            ／
+                                       ○－○－○－○－○－○－○
+                                       ∣╳∣╳∣╳∣╳∣╳∣╳∣
+                                       ○－獵－象－疣－○－豹－○
+                                       ∣╳∣╳∣╳∣╳∣╳∣╳∣
+                                       ○－○－河－○－狒－豹－○
+                                       ∣╳∣╳∣╳∣╳∣╳∣╳∣
+                                       ○－牛－○－羚－鴕－○－○
+                                       ∣╳∣╳∣╳∣╳∣╳∣╳∣
+                                       ○－長－○－斑－獅－羚－○
+                                       ∣╳∣╳∣╳∣╳∣╳∣╳∣
+                                       ○－狼－豚－肯－曲－瞪－○
+                                       ∣╳∣╳∣╳∣╳∣╳∣╳∣
+                                       ○－○－○－○－○－○－○
+                                     ／            ∣            ＼
+                                   傳              ○              傳
+                                                   ∣
+                                                   ○   傳: 傳送點
+                                                   ∣       到塔羅神殿
+                                                   ○
+                                                   ∣
+                                                   ○
+                                                   ∣
+                                                   ○
+                                                   ∣
+                                                   ○
+                                                 ／
+                                               ⊙
+                                               ∣
+                                               ⊙
+                                               ∣
+                                               ⊙
+                                               ∣
+                                               入
+                                                                                
+----------------------------------------------------------------------
+                                                                                
+塔羅神殿
+                                                                                
+                                                                                
+                  權杖                                后
+                   ∣                                 ∣
+               ⊙－－－⊙              權杖           王
+               ∣      ∣                             ∣
+       五芒星－∣－－－∣－金杯                   武－○－侍
+               ∣      ∣                         nu  nu  nu
+               ⊙－－－⊙                         兵－○－兵
+                   ∣                             ∣  ∣  ∣
+                  銀劍                            兵－○－兵
+                                                  ∣  ∣  ∣
+                                                  兵－○－兵
+                                                  ∣  ∣  ∣
+                                                  兵－○－兵
+                                                  ∣  ∣  ∣
+                                                  兵－○－兵
+                                                      ∣
+                                                      ○
+                                                      ∣
+                                      傳－01－02－03－04－05－06－07－傳
+                                      ∣  魔  祭  女  帝  司  情  車  ∣
+       五芒星                         21 世                        力 08        金杯
+                                      ∣                              ∣
+                                      00 愚                        隱 09
+                                      ∣                              ∣
+          侍wu兵－兵－兵－兵－兵      ○－傳          ？          銀－○      兵－兵－兵－兵－兵eu武
+          ∣  ∣  ∣  ∣  ∣  ∣      ∣              ∣              ∣      ∣  ∣  ∣  ∣  ∣  ∣
+  后－王－○wu○－○－○－○－○－○－○－○－○－○－○－○－○－○－※－○－○－○－○－○－○eu○－王－后
+          ∣  ∣  ∣  ∣  ∣  ∣      ∣                              ∣      ∣  ∣  ∣  ∣  ∣  ∣
+          武wu兵－兵－兵－兵－兵      ○－藥      二十二宮        商－○      兵－兵－兵－兵－兵eu侍
+                                      ∣                              ∣
+                                      20 判                        輪 10
+                                      ∣                              ∣
+                                      19 陽                        公 11
+                                      ∣  月  星  塔  惡  自  死  懸  ∣
+                                      傳－18－17－16－15－14－13－12－傳
+                                                      ∣
+                                                      ○
+                                                      ∣
+                                                  兵－○－兵
+                                                  ∣  ∣  ∣
+                                                  兵－○－兵
+                                                  ∣  ∣  ∣
+                                                  兵－○－兵
+                                                  ∣  ∣  ∣
+                                                  兵－○－兵
+                                                  ∣  ∣  ∣
+                                                  兵－○－兵
+                                                  su  su  su
+                                                  侍－○－武
+                                                      ∣
+                                        銀劍          王
+                                                      ∣
+                                                      后
+                                                                                
+                                                                                
+                                                                                
+                
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          },
+		  
+		  飛行島: {
+            mapText: `
+			
+【地圖】Fly Land
+                                                                                
+                                                                                
+                   □－□－□－□－□      □－□－□                 z
+                 ／                  ＼  ／          ＼               z
+               □                      □  村  巫      西             z
+             ／                          ／∣╳∣        ＼           z
+           □                          □－□－□－□－武  □         z
+         ／                          ／∣╳∣╳∣╳∣      ∣         z
+       □                          □－□－龜－□－□－商  □         z
+     ／                              ＼∣╳∣╳∣        ／           z
+   □                                  駐－□－□      □             z
+   ∣                                  ∣                ＼           z
+   □                                  □                  □         z
+     ＼                                ∣                  ∣         z
+       □                              □                  □         z
+       ∣                                ＼              ／           z
+       □              BF                  □－□－□－□             z
+         ＼            ∣                                ＼           z
+           □      □－□－□  蠻                          □         z
+           ∣      ∣╳∣╳∣  ∣                          ∣         z
+       斥up□－□－小－□－□－王                          □         z
+           ∣          ∣      ∣                          ∣         z
+           □          老      美                          □         z
+         ／                                              ／           z
+       □                                              HG             z
+         ＼                                              ＼           z
+           □－□→═╮            貪  銀                  □         z
+                     ║            ∣  ∣                ／           z
+               bridge║    [王城]←□－□              □             z
+                     ║                ∣            ／               z
+                     ╰═←□－□－□－□－□－□－HF                 z
+                                       ∣                             z
+                                       酷                             z
+                                                                                
+-------------------------------
+                                                                                
+                                                                                
+  [半獸族村]
+                                                                                
+           女                                       z
+           up                                       z
+           魔－－地                                 z
+           up    up                                 z
+           □    □－□－病                         z
+          down  down     up                         z
+           虎－－□      □      西                 z
+                         up    ／                   z
+                         □－□                     z
+                                                                                
+                                                                                
+                                                                                
+------------------------------
+                                                                                
+  [王城1F]
+                                                                                
+             ■          武
+             up          ∣
+             □－廚－□－駐wd裝wu□→
+                         ∣
+                         □
+                                                                                
+                                                                                
+------------------------------
+                                                                                
+                                                                                      [2F]
+                       CM              □
+                       up              ∣
+                   暴  ■  □－□－軍－□
+                   ∣  ∣／↓  ∣
+               □up□－騎  ↓  ∣  □
+                         ＼↓  ∣  ∣
+                           僕－□－□－□
+                                       ∣
+                                       □
+                                                                                
+------------------------------
+                                                                                
+                                                                                
+      [3F]
+                                                                                
+                 □
+                 up
+                 CM
+                 ∣
+                 □－□
+                                                                                                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+ooxx:
+                                                                                
+  女: *貓女(Kitty)
+  魔: 貓魔(Demon Cat)
+  地: 地獄貓(Hell Cat)
+  虎: 虎貓(Tiger Cat)
+  病: 病貓(Sick Cat)
+  西: *西風(Zephyr) 'move'
+  巫: *高原巫師--雷德(Highman wizard lader) 'follow'
+  村: 高原人村長--藍瑞斯(Landrace) 'follow'
+  HF: 三位高原人戰士(Highman fighter)
+  HG: 三位高原人守衛(Highman guard)
+  龜: *鬼齒雙頭龜(Two head turtle)
+  駐: 駐軍(Soldier)
+  酷: *獸醫師-酷喵(D.V.M coolcat)
+  王: 野人之王--約克夏(Barbarian king yorkshire)
+  蠻: *蠻王軍長(Barbarian Leader)
+  BF: 二位野人戰士(Barbarian fighter)
+  斥: 二位野人斥候(Barbarian looker) 'sp射箭'
+  BG: 野人守衛(Barbarian guard) 'move'
+  老: 野人長老(Barbarian elder)
+  美: 野人美女(Barbarian beauty)
+  小: 野人小孩(Barbarian child)
+  貪: *貪官(Tax official)
+  裝: *二個裝甲兵(Armored) 'follow'
+  武: 三位武士(Warrior)
+  騎: *二個騎士(Knight)
+  軍: 二位軍官(Commander)
+  僕: 二位僕人(Servant)
+  廚: 廚師(Cook)
+  CM: *王城魔法師(Castle Mage) 'move'
+  暴: *暴君長腳(Long Shin)
+  卡特(Cart) 'move'
+  *威廉(William) 'move'
+  *夢幻騎士(Dream Knight) 'move'
+                                                                                
+  太陽神飛行船 (Apollo): 在酷貓 n, 可坐到黑暗大陸碼頭
+                                                                                
+連接各大陸時的地點:
+From 酷貓-
+   m-land: do n,w,w,w,bridge,w,c down
+   ice-land: do n,w,w,w,c down
+   e-land: do n,e,e,e,ne,ne,nw,ne,n,n,nw,c down
+   dragon-land: do n,e,e,e,ne,ne,nw,ne,n,n,nw,ne,n,nw,ne,n,nw,nw,w,w,sw,nw,c dow
+n
+                                                                                
+                                                                                
+PS: 1.兩個 "西","■","CM", 各都是同一格
+    2.要進王城可以用bump gate 撞個洞進去(str越高越容易撞開,str低的要撞很多次,會-
+hp),
+      也可以跟貪官買通行証pay official(一張只能用一次)
+    3.有*都是較危險的mob, 要打前先問問members
+      沒有*的大部分都沒sp,有也打不死人
+    4.開flay land war時,會在王城出現很多fly land mob,and all auto kill& move
+
+
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          }
+        },
+		
+		史庫爾島: {
+          拜瑞爾城: {
+            mapText: `
+			
+Editor : Madman
+                                                                    
+                                                                     
+                                                                     
+        2400 400                                                 
+                                                                     
+                                                                     
+                                                                     
+                                                                     
+                           碼－○                                   
+                               ∣                                   
+                               ○－○－○－－－麻                      
+                               ＋              ∣                       
+            管  花         旅－○              ○                       
+            ∣  ∣             ∣              ∣                       
+            ○－○             ○  孩  老      貓－○－獸                       
+            ∣  ∣           ／  ＼∣  ＋      ∣      ∣               
+            ○－池     池－○  ○  ○－○      ○      ○               
+                       ∣    ＼∣／    ∣      ∣      ∣               
+                       銀      ○      藥  ○－鼠      瀑               
+                               ∣          ∣                       
+                           商－○      衛－○                       
+                               ∣          ∣                       
+                           傳－○－師      ○－衛                   
+                               ∣                                   
+                           ○－○  樵                               
+                           ∣      ∣                               
+                           ○  ○  ○                               
+                           ∣＼∣／∣                               
+                           貓  席  樵                               
+                                                                    
+
+
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          },
+		  
+		  南方地下: {
+            mapText: `
+			
+－○／ ＼  ∣
+                 王
+                 ∣
+         lp      天      地
+           ＼  ／∣＼  ／
+             ○  pu  ○
+           ／    ∣    ＼ 
+     冷－○  ti－st－翅  ○－肉
+           ＼          ／
+             菜  雷  ○
+               ＼∣／
+                 tu
+               ／  ＼
+             光－○  魔
+             ∣  ∣  ∣
+         丘－○  屍－○－蛋
+             ∣      ∣
+             豬－○－○
+               ＼∣／ 
+                 up
+
+
+up-----  起點    up 是出口
+王-----  忍者王--拉瑪(Ninja god rama)                               inv sp 3 clot 2xx hp
+天-----  二位天忍(Sky ninja)                                            sp 最後一擊 26x
+地-----  二位地忍(Ground ninja)						同上
+lp----- 光忍(Light ninja)+豬面魔(Pigface demon) 定時- 20 hp
+肉-----  二位肉忍(Meat ninja)
+冷-----冷夜伯爵(Cold night earl)	sp 1 clot,tired, - hp　ko 後會變身黑暗蝙蝠(Dark bat)auto 打人很痛
+pu-----push door 陣容要best evil or holy
+ti-----  二位虎人(Tiger man)						attack high devil eq fc 還是會被打到
+st-----step circle(接下圖)
+翅-----  科卡托理斯(Cocktoris)						sp stone follow
+菜-----  二位菜忍(Newbie ninja)
+tu-----turn up 之後-200 hp 會出現north 的路
+雷-----雷帝--夏雅娜(Thunder god - sharna)	sp devil 200,mage over 250&delay mage spell ko 後會變身,雷獸--奴耶(Noya)
+　　　 attack high 打死後會有電神劍（sp wp）還不錯用　
+光----- 光忍(Light ninja)
+屍-----  二位黑暗僵屍(Dark zombie)					follow
+魔-----魔炎鬥氣(Magic flame)	sp - hp 100,1 clot
+丘-----  二位丘陵地精(Fell gnome)
+蛋-----  二位蛋忍(Egg ninja)                                  		follow
+豬-----  豬面魔(Pigface demon)
+
+
+		
+
+                圖二                圖三
+				
+
+                ei                          ○      
+                ｜                          su
+                ○                          ○eu○
+                ｜                              su
+                ○                              ○c rope
+              ／　＼
+            xxxxxxxxxxxxxxxx
+            xxxxxxxxxxxxxxxx
+            xxxxxxxxxxxxxxxx
+            xxxxxxxxxxxxxxxx
+                en
+                ｜
+                st
+
+
+
+
+					
+圖二
+
+st-----bump door ------>二位石像士兵(Stone soldier)                     auto attack high
+
+xx----- 除了devil先ko 科卡托理斯eq wing 才可以過要不然....(接另一個map) 要有像迷幻峽谷走法為 10 n;ne;nw 裡面有二隻                    密諾塔洛斯(Minotajrus)   auto follow cb 後會變爛 
+
+ei----- 艾迪--伊(Endy Ei)                                                auto sp 4 clot blind poison
+
+
+
+圖三 每一格都有二隻僵屍犬(Zombie dog) or 3                           auto follow  sp sick and poison
+
+c rope 會回到 pull rings 那格
+                          
+                                                                    
+
+
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          }
+		  
+		  
+        },
+		
+		龍島: {
+          龍島城內: {
+            mapText: `
+			
+			
+       善龍塔                                                        
+                                                                     
+       1F              2F              3F                            
+                                                                     
+       龍－○－龍      ○－○－○      ○－白－○                    
+       ∣  ：  ∣      ∣      ∣      ∣  ∣  ∣                    
+       ○  上  ○      梯  下←○      梯－○－君                    
+       ∣      ∣      ∣  ↓  ∣      ∣  ∣  ∣                    
+       龍－○－龍      ○－○－○      ○－藍－○                    
+           ：
+           ○                                                       
+           ∣                                                       
+       隱－○          銀  藥  商  傳          天下會在 狂 4w       
+             ＼        ∣  ∣  ∣／                                 
+               ○  旅－○－○－○             ○－○                
+               ∣      ∣      ∣             ∣  ∣                
+           港－○－○－○  秘＝○－德         ○  ○－○  秘        
+               ∣  ＋  ∣      ∣             ∣                    
+               ○  室  ○－○－○－狂     殿－○                    
+                 ＼    ∣  ∣                                       
+                   ○  酒  ○＋室  ○－○                           
+                     ＼    ∣    ／    ∣                           
+                       ○－○－○      ○                           
+                                       ∣                           
+                                       龍＝○－龍－○               
+                                               ∣                   
+          ○－○－○                       龍－○－龍               
+        ／          ＼                     ∣  ∣  ∣  惡龍塔       
+      ○              ○                   ○－○－○               
+      ∣              ∣                   ∣  ∣  ∣               
+      ○              ○                   龍－○－龍 <- u 可到 2F  
+      ∣              ∣                                            
+      室              ○            3F                              
+        ＼          ／                 紅－○－黑                   
+          ○－○－室                   ∣  ∣  ∣
+                                       ○－○－君
+                                       ∣  ∣  ∣
+                            可到 2F -> 綠－○－黑
+ 
+   2F
+龍牙寨大寨的第二層 -
+在東邊牆上開了扇瞭望用的窗口, 可以觀察外界動靜。南邊的木梯可通
+到一樓。東牆及南牆有精鋼的防護網, 以加強大寨的防禦。你發現這層
+樓中飄著濃霧, 你看不清楚四周的情形。在霧中你隱約看到閃動的粉紅
+色亮光, 這地方處處都透露出詭譎的氣氛。
+        這裡的明顯出路有 west 和 north。
+  二個波查克龍人(bozak draconian)
+
+       可以往上
+
+   從這裡每走一格可以 l 方向, 看到 下面的房間就 do 方向,up
+
+龍牙寨大寨的第二層 -
+在西邊牆上開了扇瞭望窗口, 可以觀察外界動靜。南牆及西牆各設有精
+鋼防護網, 以加強大寨的防禦工事。在南邊有座精緻的木梯(ladder)通
+往第三層。你發現這層樓中飄著濃霧, 你看不清楚四周的情形。在霧中
+你隱約看到閃動的粉紅色亮光, 這地方處處都透露出詭譎的氣氛。
+        這裡的明顯出路有 east 和 north。
+  二個波查克龍人(bozak draconian)
+
+       可以往上
+
+
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          },
+		  
+		  百龍谷: {
+            mapText: `
+			
+【地圖】百龍谷
+                                                                                
+                                        內部百龍谷: (走到底會從另一頭連接)
+    ○－雕－○－○－○－○－○－蟒－○
+    ∣  ∥                          ∣    腕: 腕龍
+    ○  WJ－○－腕－○－○－○－○  ○        恐爪龍 (北邊的 腕 )   follow
+    ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣    虛: 虛形龍                follow
+    史  ○－虛－○－○－里－○－DF＝雕    里: 里約龍
+    ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣    異: 異特龍
+    ○  異－○－○－ha－○－劍－ec  ○    ha: 黑瑞龍                follow
+    ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣        異特龍
+    雕＝Ot－○－○－暴－○－○－○  ○    劍: 劍龍
+    ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣    ec: 扭椎龍                follow
+山－○  ○－扭－○－○－○－三－○  ○        虛形龍                follow
+    ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣        黑瑞龍                follow
+    史  腕－○－○－板－○－○－○  ○    暴: 暴龍                  follow
+    ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣  ∣    扭: 扭椎龍                follow
+    黃  ○－扭－○－○－雷－○－○  史    三: 三角龍
+    ∣                  ∥          ∣    板: 板龍
+    ○－藍－藍－○－○－雕－藍－○－史    雷: 雷龍
+                                      ＼
+                                        變
+                                                                                
+ 外圍原始叢林部分:
+                                                                                
+ 山: 山怪 (要 月之女神雕像 才能 east)
+ 史: 史萊姆(Slime) easy
+ 蟒: pull wistaria 會出現 蟒蛇        auto
+ 藍: 藍色史萊姆
+ 黃: 黃色史萊姆
+ 變: 變種巨蟒 (青蛇劍)                auto  sp
+                                                                                
+ 另有瘋狂魔法師 (move sp)
+                                                                                
+                                                                                
+ 由原始叢林進入百龍谷方法:
+ WJ: 天下, 紫幻 在北邊雕像 pray statue 到此格
+ DF: 龍門, 明教 在東邊雕像 pray statue 到此格
+ 雷: 錢幫, 風族 在南邊雕像 pray statue 到此格
+ Ot: 其他的在西邊雕像 pray statue 到此格
+                                                                                
+ 出百龍谷則到進來的那一格 jump, 會到外面一格的雕像
+                                                                                
+p.s. 百龍谷: 1. 恐爪龍不一定有
+             2. 每隻龍都會踩人, 撞人, 不會 follow 的只有異特龍會咬人,
+                會 follow 的每隻都會咬人
+                   踩人: leg 33, 疲勞, - hp
+                   撞人: leg 40, 疲勞, - hp
+                   咬人: 疲勞 6x 以上, - hp
+             3. 板龍北邊一格 search grass 有風霜凝露 (eat pill add dex 1)
+             4. 劍龍那格 search grass 有蛇, 打死有蛇涎
+             5. 三角龍 search grass 有巨大便便, eat shit 可補 hp
+
+
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          }
+		  
+		  
+        },
+		
+		賽興島: {
+          達頓鎮: {
+            mapText: `
+【地圖】達頓鎮
+                                                                                
+                                                  ○－○－壁
+                                                  ∣    (down)
+                                                  ○      ○－盜－○
+                                                  ∣      ∣
+                                          老＝橡－○      ○
+                                                  ∣
+                                                  ○
+                                                  ∣
+                                                  ○
+                                                  ∣
+                                                  ○－風
+                                                  ∣
+                                                  ○
+                                                ／
+                                              ○
+                                              ∣
+          吸－○－僵－○－僵－○－兔－傳      ○
+                  ∣  ∣  ∣  ∣  ∣          ∣
+          ○      ○－○－兵－僵－○          ○
+          ∣                      ＋          ∣
+      酒－○＋○  ○  ○  愛  泰  ○－衛      ○－○－○－○－○－○
+          ∣      ＋  ＋  ＋  ＋  ∣          ∣  ∣  ∣  ∣  ∣  ∣
+          ○－○－○－○－○－○－井－○－○＋○－○－○－○－○－○－○
+          ∣      ＋  ＋  ＋  ＋              ∣  ∣  ∣      ∣
+      ○－○      ○  ○  ○  馬              ○－○－○      ○
+      ∣    ＼            ：                  ∣      ∣
+      ○  藥－○－○－    梯═╮  墓－○－○－○      ○
+      ∣    ／    ∣      ∣  ║  ∣  ∣  ∣
+  碼－○－○      商      ○  ║  ○－○－○
+      ∣                      ║  ∣  ∣  ∣
+      ○                      ║  ○－○－○
+                              ║
+                          犬＋梯＋○
+                              ＋
+                              繩
+
+
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          },
+		  
+		  索斯古墓: {
+            mapText: `
+do push gate,w,w,w,n,n,n,w,w,w,jump gap
+do move rock,wd
+do w,w,cb,w,sd,wd,w
+do e,eu,e,e,jump on slag,d,w,w,wd,w
+
+
+
+
+04－○－○
+        ∣
+        02－⊙
+        ∣
+        ○
+        ∣
+        03－01
+
+⊙－pull lever,讓 archmage inv 先進吧
+01－bag,骷髏衛兵(skull guard)
+02－這裡附近有骷髏魔法師(skull mage)會走動,
+    auto k,follow
+03－statue
+04－gap,jump gap 到下面map
+04－05
+
+04－move rock 後有 wd , 接另外一個13
+05－statue,creep to east
+
+
+  09  10
+  ∣  ∣
+  ⊙－○－06
+  ∣  ∣
+  07  08
+
+
+06－take 扣環,會跑出07,08,09,10 四隻 mob
+07－雨神
+08－電神
+09－風神
+10－雷神(oush rick)
+
+take 扣環後,⊙這格就不會撿hp
+先 k 雨神, k 風神會被送到雨神那
+17－○－13    16－○
+          wd／                  ∣
+          ○－○－14－－－－－－○
+      wd／
+  15－○
+
+
+13－eu回04
+14－jump on slag 到下面 " 骷髏神殿 "
+15－climb,可以到古井那(出去)
+16－giant
+17－烈火碥蝠
+
+
+骷髏神殿
+
+
+      □
+      ∣
+  ⊙－02－□
+
+□－為機率房間
+
+在□找有 " 鬆動的地板 " 這行敘述 ,
+look 地板,remove 地板,down,
+open box 會出現依波(ippo)
+
+□有個出口可以到老索斯
+
+
+        ○－○－○
+        ∣  ∣  ∣
+○－■－⊙－01－02
+        ∣  ∣  ∣
+        ○－○－○
+
+
+■－石門
+01－up,有寇拉斯, auto , follow 會走動
+02－look mirror, rub mirror 血之魔棺
+回 w 走回02
+
+
+
+
+`.trim(),
+            markers: [
+              { key:"洞穴", color:"purple", title:"洞穴", text:"裡面很危險。" }
+            ]
+          }
+        }
+		
+      },
+
+      selectedCategory: "主大陸",
+      selectedMap: "坎德斯大陸",
+
+      zoom: 1,
+      offsetX: 0,
+      offsetY: 0,
+      dragging: false,
+      lastX: 0,
+      lastY: 0,
+
+      touchDist: null,
+      info: null
+    }
+  },
+
+  computed: {
+
+    currentMap() {
+      return this.maps[this.selectedCategory][this.selectedMap];
+    },
+
+    renderedMap() {
+      return this.parseMap(this.currentMap.mapText);
+    },
+
+    mapStyle() {
+      return {
+        transform: `translate(${this.offsetX}px, ${this.offsetY}px) scale(${this.zoom})`
+      }
+    },
+
+    infoStyle() {
+      return {
+        transform: `scale(${this.zoom})`,
+        transformOrigin: "bottom right"
+      }
+    },
+	
+	menuStyle() {
+	  return {
+		transform: `scale(${this.zoom})`,
+		transformOrigin: "top left"
+	  }
+	}
+  },
+
+  watch: {
+    selectedCategory() {
+      this.selectedMap = Object.keys(this.maps[this.selectedCategory])[0];
+      this.resetView();
+    },
+    selectedMap() {
+      this.resetView();
+    }
+  },
+
+  methods: {
+
+    resetView() {
+      this.zoom = 1;
+      this.offsetX = 0;
+      this.offsetY = 0;
+      this.info = null;
+    },
+
+    parseMap(text) {
+      const markers = this.currentMap.markers;
+
+      return text.split("\n").map(row => {
+        let out = [];
+        let i = 0;
+
+        while (i < row.length) {
+          let matched = false;
+
+          for (let m of markers) {
+            if (row.startsWith(m.key, i)) {
+              out.push({
+                char: m.key,
+                color: m.color,
+                title: m.title,
+                text: m.text
+              });
+              i += m.key.length;
+              matched = true;
+              break;
+            }
+          }
+
+          if (!matched) {
+            out.push({ char: row[i], color:"#fff" });
+            i++;
+          }
+        }
+        return out;
+      });
+    },
+
+    showInfo(cell) {
+      if (cell.text) this.info = cell;
+    },
+
+    zoomIn(){ this.zoom = Math.min(4, this.zoom+0.1); },
+    zoomOut(){ this.zoom = Math.max(0.5, this.zoom-0.1); },
+
+    onWheel(e){
+      this.zoom += e.deltaY * -0.001;
+      this.zoom = Math.min(Math.max(0.5,this.zoom),4);
+    },
+
+    startDrag(e){
+      this.dragging=true;
+      this.lastX=e.clientX;
+      this.lastY=e.clientY;
+    },
+    onDrag(e){
+      if(!this.dragging)return;
+      this.offsetX+=e.clientX-this.lastX;
+      this.offsetY+=e.clientY-this.lastY;
+      this.lastX=e.clientX;
+      this.lastY=e.clientY;
+    },
+    endDrag(){ this.dragging=false; },
+
+    startTouch(e){
+      if(e.touches.length===2)
+        this.touchDist=this.getDist(e);
+    },
+    onTouchMove(e){
+      if(e.touches.length===2){
+        const d=this.getDist(e);
+        this.zoom*=d/this.touchDist;
+        this.zoom=Math.min(Math.max(0.5,this.zoom),4);
+        this.touchDist=d;
+      }
+    },
+    endTouch(){ this.touchDist=null; },
+    getDist(e){
+      const [a,b]=e.touches;
+      return Math.hypot(b.clientX-a.clientX,b.clientY-a.clientY);
+    }
+  }
+}).mount("#app");
+</script>
+
+</body>
+</html>
